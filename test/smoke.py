@@ -2575,6 +2575,76 @@ def T81(r, room):
     click_leave(a)
 
 
+def T82(r, room):
+    """名刺の画像（v0.16.8）：切り抜きの窓でドラッグした位置が反映される・透明は白・JPEG で 4 万文字以内・やめるで変わらない・30MB 超は断る
+
+    テスト用の画像はページの中で作る（左半分が赤・右半分が青の 4000×3000）。右へドラッグして左端を見せ、拡大して決定
+    → 仕上がりの真ん中は赤。全面透明の PNG は白になる（JPEG は透明を持てず、塗らないと黒）。
+    """
+    a = r.open_tab()
+    a.eval("localStorage.setItem('pot-call-hide-help','1'); localStorage.removeItem('pot-call-card'); document.querySelectorAll('dialog[open]').forEach(d => d.close())")
+    a.call('Page.bringToFront')
+    a.eval("document.getElementById('btnOpenCardEdit').click()")
+    a.wait_for("document.getElementById('cardEditDlg').open", timeout=SHORT)
+    PICK = """(async kind => {
+        let blob
+        if (kind === 'big') blob = new Blob([new Uint8Array(31 * 1024 * 1024)], { type: 'image/png' })
+        else {
+          const c = document.createElement('canvas')
+          if (kind === 'clear') { c.width = c.height = 1000 }
+          else { c.width = 4000; c.height = 3000; const g = c.getContext('2d'); g.fillStyle = '#ff0000'; g.fillRect(0, 0, 2000, 3000); g.fillStyle = '#0000ff'; g.fillRect(2000, 0, 2000, 3000) }
+          blob = await new Promise(ok => c.toBlob(ok, 'image/png'))
+        }
+        const dt = new DataTransfer(); dt.items.add(new File([blob], kind + '.png', { type: 'image/png' }))
+        const i = document.getElementById('ceAvatarFile'); i.files = dt.files; i.dispatchEvent(new Event('change'))
+        return true
+    })(%s)"""
+    CENTER = """(async () => { const src = document.getElementById('ceAvatarImg').getAttribute('src') || ''
+        if (!src.startsWith('data:image/jpeg')) return 'none'
+        const im = new Image(); await new Promise(ok => { im.onload = ok; im.src = src })
+        const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); g.drawImage(im, 0, 0)
+        const d = g.getImageData(64, 64, 1, 1).data; return [d[0], d[1], d[2], src.length].join(',') })()"""
+    # ①ドラッグで位置を決める
+    a.eval(PICK % json.dumps('rb'))
+    opened = a.wait_for("document.getElementById('cropDlg').open", timeout=SHORT)
+    rc = json.loads(a.eval("JSON.stringify(document.getElementById('cropCanvas').getBoundingClientRect())"))
+    cx, cy = rc['left'] + rc['width'] / 2, rc['top'] + rc['height'] / 2
+    a.call('Input.dispatchMouseEvent', type='mousePressed', x=cx, y=cy, button='left', clickCount=1)
+    for k in range(1, 6):
+        a.call('Input.dispatchMouseEvent', type='mouseMoved', x=cx + 80 * k, y=cy, button='left')
+    a.call('Input.dispatchMouseEvent', type='mouseReleased', x=cx + 400, y=cy, button='left', clickCount=1)
+    a.eval("(() => { const z = document.getElementById('cropZoom'); z.value = '3'; z.dispatchEvent(new Event('input')) })()")
+    a.eval("document.getElementById('cropOk').click()")
+    a.wait_for("!document.getElementById('cropDlg').open && !document.getElementById('ceAvatarImg').hidden", timeout=SHORT)
+    px = a.eval(CENTER)
+    r_, g_, b_, n = [int(x) for x in px.split(',')] if px != 'none' else [0, 0, 0, 0]
+    red = r_ > 200 and b_ < 60 and 0 < n <= 40000
+    # ②やめる＝変わらない
+    before = a.eval("document.getElementById('ceAvatarImg').getAttribute('src')")
+    a.eval(PICK % json.dumps('rb'))
+    a.wait_for("document.getElementById('cropDlg').open", timeout=SHORT)
+    a.eval("document.getElementById('cropCancel').click()")
+    a.wait_for("!document.getElementById('cropDlg').open", timeout=SHORT)
+    kept = a.eval("document.getElementById('ceAvatarImg').getAttribute('src')") == before
+    # ③透明は白
+    a.eval(PICK % json.dumps('clear'))
+    a.wait_for("document.getElementById('cropDlg').open", timeout=SHORT)
+    a.eval("document.getElementById('cropOk').click()")
+    a.wait_for("!document.getElementById('cropDlg').open", timeout=SHORT)
+    time.sleep(0.3)
+    px2 = a.eval(CENTER)
+    white = px2 != 'none' and all(int(x) > 230 for x in px2.split(',')[:3])
+    # ④30MB 超は断る（切り抜きの窓を開かない）
+    a.eval(PICK % json.dumps('big'))
+    refused = a.wait_for("!document.getElementById('ceAvatarMsg').hidden && document.getElementById('ceAvatarMsg').textContent.includes('大きすぎます')", timeout=SHORT)
+    no_crop = not a.eval("document.getElementById('cropDlg').open")
+    a.eval("document.querySelectorAll('dialog[open]').forEach(d => d.close()); localStorage.removeItem('pot-call-card')")
+    ok = bool(opened and red and kept and white and refused and no_crop)
+    r.check('T82', '名刺の画像：切り抜きの位置が反映・透明は白・JPEG で 4 万文字以内・やめるで変わらない・30MB 超は断る', ok, 'pass',
+            '窓=%s / ドラッグ位置（真ん中が赤）=%s(%s) / やめる=%s / 透明は白=%s(%s) / 大きすぎを断る=%s / 窓を開かない=%s'
+            % (bool(opened), red, px, kept, white, px2, bool(refused), no_crop))
+
+
 def T73(r):
     """プロフィールカード編集＆認証チャレンジUI（v0.16.0）：
     編集モーダル（#cardEditDlg）展開、SNS入力で認証ボタン出現、
@@ -3727,6 +3797,8 @@ def main():
             T80(r, room)
         if run('T81'):
             T81(r, room)
+        if run('T82'):
+            T82(r, room)
         if run('T27i'):
             T27i(r, room)
         if run('T27j'):

@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ぽっと通話〈実験版〉 v0.16.7
+  ぽっと通話〈実験版〉 v0.16.8
   同じ部屋名を開いた人どうしが、ブラウザだけで声でつながるミニ通話アプリ。
   サーバは持たない（相手発見＝公開Nostrリレー／音声＝WebRTC・Cloudflare TURN経由）。
   ビルドもパッケージも無く、この1ファイルで完結する。GitHub Pages で配信。
@@ -66,7 +66,7 @@
   default-src 'none';
   script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://static.cloudflareinsights.com https://cdn.jsdelivr.net https://unpkg.com;
   style-src 'self' 'unsafe-inline';
-  img-src 'self' data:;
+  img-src 'self' data: blob:;
   media-src 'self' blob:;
   connect-src 'self' https://pot-turn.itsuma-kuramoto.workers.dev https://cloudflareinsights.com https://cdn.jsdelivr.net https://unpkg.com https://api.github.com https://publish.x.com https://publish.twitter.com wss://relay.primal.net wss://purplerelay.com wss://bucket.coracle.social wss://yabu.me/v2 wss://x.kojira.io wss://relay.notoshi.win wss://relay.ditto.pub;
   manifest-src 'self';
@@ -242,6 +242,13 @@
   .help-dialog p.cd-tip-trust{ margin:8px 0 0; font-size:12.5px; color:var(--text); line-height:1.5 }
   .cd-tip.weak{ border-color:var(--border-soft); background:var(--panel) }
   .cd-tip-ln{ margin-top:8px }
+  .crop-view{ width:240px; height:240px; margin:0 auto 12px; border-radius:65px; overflow:hidden; background:#fff;
+    border:1px solid var(--border-soft); box-shadow:0 2px 10px rgba(0,0,0,.18); touch-action:none }
+  #cropCanvas{ width:240px; height:240px; display:block; cursor:grab; touch-action:none }
+  #cropCanvas:active{ cursor:grabbing }
+  #cropCanvas:focus-visible{ outline:2px solid var(--link); outline-offset:-2px }
+  .crop-zoom{ display:flex; align-items:center; gap:8px; margin:0 0 4px }
+  .crop-zoom input{ flex:1; width:auto; margin:0; accent-color:var(--accent) }
   .cd-tip-ln button{ width:100%; margin:0; padding:8px 12px; font-size:13px; font-weight:700; border-radius:9px; background:var(--chip); color:var(--chip-fg); border:1px solid var(--border-soft); cursor:pointer }
   .cd-tip.weak a{ background:var(--chip); color:var(--chip-fg) !important; font-weight:600 }
   .cd-verify{ margin:0 0 12px }
@@ -307,7 +314,8 @@
   .ca-note{ font-size:11.5px; color:var(--note); line-height:1.5; margin:6px 0 0 }
   .ce-actions{ display:flex; gap:10px; margin-top:14px }
   .ce-actions button{ flex:1; width:auto; margin:0; padding:12px; font-size:14px; border-radius:10px }
-  #ceSave{ background:var(--join-bg); color:var(--join-fg) }
+  #ceSave, #cropOk{ background:var(--join-bg); color:var(--join-fg) }
+  #cropCancel{ background:var(--mute); color:var(--text) }
   #ceCancel{ background:var(--mute); color:var(--text) }
   .pf-card-btn{ width:100%; margin:10px 0 0; padding:9px 12px; font-size:13px; font-weight:700; border-radius:9px; background:var(--chip); color:var(--chip-fg); cursor:pointer }
   /* メンバー行のタップ可能装飾 */
@@ -1504,6 +1512,7 @@
       <button type="button" id="ceAvatarClear" class="ca-text-btn" hidden>画像を削除</button>
     </div>
   </div>
+  <p id="ceAvatarMsg" class="ce-warn-text" hidden></p>
 
   <label class="ce-lbl" for="ceBio">ひとこと（bio）<span id="ceBioCnt" class="char-count">0/60</span></label>
   <textarea id="ceBio" maxlength="60" placeholder="自己紹介やステータスなど（最大60文字）" rows="2"></textarea>
@@ -1580,6 +1589,17 @@
   <div class="ce-actions">
     <button id="ceSave" type="button">保存する</button>
     <button id="ceCancel" type="button">閉じる</button>
+  </div>
+</dialog>
+<!-- 名刺の画像の切り抜き（v0.16.8）。名刺の編集の窓の上に開く。背景のタップでは閉じない（調整中に消えないように） -->
+<dialog id="cropDlg" class="help-dialog card-dialog" aria-labelledby="cropTitle">
+  <h2 id="cropTitle" style="margin:0 0 6px">画像の位置を決める</h2>
+  <p class="sub" style="margin:0 0 12px;font-size:12.5px">ドラッグで位置、つまみで大きさを調整します。枠の中が名刺の画像になります。</p>
+  <div class="crop-view"><canvas id="cropCanvas" tabindex="0" aria-label="切り抜く位置。ドラッグか矢印キーで動かし、＋と－で拡大します"></canvas></div>
+  <label class="crop-zoom"><span aria-hidden="true">🔍</span><input type="range" id="cropZoom" min="1" max="4" step="0.01" value="1" aria-label="拡大"></label>
+  <div class="ce-actions">
+    <button id="cropOk" type="button">決定</button>
+    <button id="cropCancel" type="button">やめる</button>
   </div>
 </dialog>
 <!-- SNS 本人確認チャレンジモーダル（v0.16.0） -->
@@ -1694,7 +1714,7 @@ window.__potPending = () => { try { return pendingPeers().map(p => p.name || p.i
 // ───────────────────────────────────────────────────────────────────────────
 // 版。**ここが唯一の定義**（画面表示もここから入れる）。ファイル冒頭のコメントにも同じ番号が
 // 書いてあるので、上げるときは両方直すこと（食い違いは test/smoke.py の T15 が検出する）。
-const APP_VERSION = 'v0.16.7'
+const APP_VERSION = 'v0.16.8'
 
 const $ = id => document.getElementById(id)
 // localStorage は**必ずここを通す**。Safari のプライベートモードやストレージ拒否の環境では
@@ -3082,29 +3102,108 @@ const handleAutoTrim = (el, def) => {
   }
 }
 
-const processAvatarFile = file => new Promise((resolve, reject) => {
-  if (!file || !file.type.startsWith('image/')) return reject(new Error('画像ファイルを選択してください'))
-  const reader = new FileReader()
-  reader.onload = e => {
+// ── 名刺の画像（v0.16.8）──
+// ①30MB を超えるファイルは断る ②**縮めた状態で展開する**（長辺 1024px まで）＝最近のスマホの 48MP 写真（展開すると約 190MB）を
+//   丸ごと展開しない。iPhone の Safari はタブのメモリ制限が厳しく、通話中のタブが落ちると通話も切れるため
+// ③切り抜きの窓（ドラッグで位置・つまみで拡大）④**半分ずつ縮めて** 128px に（一気に縮めると線がギザギザになる）
+// ⑤透明な部分は白で埋める（JPEG は透明を持てず、そのままだと黒くなる）⑥40,000 文字（約 30KB）に収まるまで画質を下げる。
+// 写真の向き（回転の情報）はブラウザが反映する（imageOrientation: 'from-image'）。位置情報などのメタデータは描き直しで消える。
+const AVATAR_FILE_MAX = 30 * 1024 * 1024
+const AVATAR_WORK_MAX = 1024
+const AVATAR_OUT = 128
+const AVATAR_MAX_CHARS = 40000
+const CROP_VIEW = 240
+const avatarMsg = msg => { $('ceAvatarMsg').textContent = msg; $('ceAvatarMsg').hidden = !msg }
+const loadWorkingImage = async file => {
+  if (!file || !/^image\//.test(file.type)) throw new Error('画像ファイルを選んでください')
+  if (file.size > AVATAR_FILE_MAX) throw new Error('画像が大きすぎます（30MB まで）。スクリーンショットや、小さめに書き出した画像を選んでください')
+  const url = URL.createObjectURL(file)
+  try {
     const img = new Image()
-    img.onload = () => {
-      const size = 128
-      const canvas = document.createElement('canvas')
-      canvas.width = size
-      canvas.height = size
-      const ctx = canvas.getContext('2d')
-      const minDim = Math.min(img.width, img.height)
-      const sx = (img.width - minDim) / 2
-      const sy = (img.height - minDim) / 2
-      ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, size, size)
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.82)
-      resolve(dataUrl)
+    img.decoding = 'async'
+    await new Promise((ok, ng) => { img.onload = ok; img.onerror = () => ng(new Error('画像を読み込めませんでした（この形式には対応していないかもしれません）')); img.src = url })
+    const w0 = img.naturalWidth, h0 = img.naturalHeight
+    if (!w0 || !h0) throw new Error('画像を読み込めませんでした')
+    const k = Math.min(1, AVATAR_WORK_MAX / Math.max(w0, h0))
+    const w = Math.max(1, Math.round(w0 * k)), h = Math.max(1, Math.round(h0 * k))
+    if (window.createImageBitmap) {
+      try {
+        const bmp = await createImageBitmap(file, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high', imageOrientation: 'from-image' })
+        if (bmp.width === w && bmp.height === h) return bmp
+        bmp.close?.()   // 縮小の指定が効かなかった（古いブラウザ）＝下の canvas で縮める
+      } catch {}
     }
-    img.onerror = () => reject(new Error('画像の読み込みに失敗しました'))
-    img.src = e.target.result
+    const c = document.createElement('canvas'); c.width = w; c.height = h
+    const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'
+    g.drawImage(img, 0, 0, w, h)
+    return c
+  } finally { URL.revokeObjectURL(url) }
+}
+// 切り抜いた正方形（元画像の座標 sx, sy, 一辺 sw）を 128px の JPEG に。失敗したら ''
+const renderAvatar = (src, sx, sy, sw) => {
+  try {
+    let size = Math.max(AVATAR_OUT, Math.min(AVATAR_WORK_MAX, Math.round(sw)))
+    let c = document.createElement('canvas'); c.width = c.height = size
+    let g = c.getContext('2d'); g.imageSmoothingQuality = 'high'
+    g.drawImage(src, sx, sy, sw, sw, 0, 0, size, size)
+    while (size / 2 >= AVATAR_OUT) {   // 半分ずつ縮める
+      const n = document.createElement('canvas'); n.width = n.height = Math.round(size / 2)
+      const ng = n.getContext('2d'); ng.imageSmoothingQuality = 'high'; ng.drawImage(c, 0, 0, n.width, n.height)
+      c = n; size = n.width
+    }
+    const out = document.createElement('canvas'); out.width = out.height = AVATAR_OUT
+    const og = out.getContext('2d')
+    og.fillStyle = '#fff'; og.fillRect(0, 0, AVATAR_OUT, AVATAR_OUT)   // 透明な部分は白
+    og.imageSmoothingQuality = 'high'; og.drawImage(c, 0, 0, AVATAR_OUT, AVATAR_OUT)
+    for (const q of [0.82, 0.72, 0.62, 0.5]) { const d = out.toDataURL('image/jpeg', q); if (d.length <= AVATAR_MAX_CHARS) return d }
+  } catch {}
+  return ''
+}
+// 切り抜きの窓。決定で dataURL（失敗は ''）、やめる・Esc で null
+const openCrop = src => new Promise(resolve => {
+  const V = CROP_VIEW, cv = $('cropCanvas'), dpr = Math.min(3, window.devicePixelRatio || 1)
+  cv.width = cv.height = Math.round(V * dpr)
+  const g = cv.getContext('2d')
+  const W = src.width, H = src.height
+  const base = Math.max(V / W, V / H)   // 枠をちょうど覆う大きさ（ここより小さくはしない＝余白を作らない）
+  let zoom = 1, ox = (V - W * base) / 2, oy = (V - H * base) / 2   // 最初は真ん中
+  const sc = () => base * zoom
+  const clamp = () => { const k = sc(); ox = Math.min(0, Math.max(V - W * k, ox)); oy = Math.min(0, Math.max(V - H * k, oy)) }
+  const draw = () => {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = '#fff'; g.fillRect(0, 0, V, V)
+    g.imageSmoothingQuality = 'high'; g.drawImage(src, ox, oy, W * sc(), H * sc())
   }
-  reader.onerror = () => reject(new Error('ファイルの読み込みに失敗しました'))
-  reader.readAsDataURL(file)
+  const setZoom = z => {   // 枠の真ん中を中心に拡大・縮小
+    const k0 = sc(); zoom = Math.min(4, Math.max(1, z)); const k1 = sc()
+    ox = V / 2 - (V / 2 - ox) * k1 / k0; oy = V / 2 - (V / 2 - oy) * k1 / k0
+    clamp(); $('cropZoom').value = String(zoom); draw()
+  }
+  $('cropZoom').value = '1'
+  $('cropZoom').oninput = () => setZoom(+$('cropZoom').value)
+  let drag = null
+  cv.onpointerdown = e => { drag = { x: e.clientX, y: e.clientY, ox, oy }; try { cv.setPointerCapture(e.pointerId) } catch {} }
+  cv.onpointermove = e => { if (!drag) return; ox = drag.ox + (e.clientX - drag.x); oy = drag.oy + (e.clientY - drag.y); clamp(); draw() }
+  cv.onpointerup = cv.onpointercancel = () => { drag = null }
+  cv.onwheel = e => { e.preventDefault(); setZoom(zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)) }
+  cv.onkeydown = e => {   // キーボード：矢印で画像を動かす・＋／－で拡大
+    const d = { ArrowLeft: [-8, 0], ArrowRight: [8, 0], ArrowUp: [0, -8], ArrowDown: [0, 8] }[e.key]
+    if (d) { e.preventDefault(); ox += d[0]; oy += d[1]; clamp(); draw() }
+    else if (e.key === '+' || e.key === '=') { e.preventDefault(); setZoom(zoom * 1.1) }
+    else if (e.key === '-') { e.preventDefault(); setZoom(zoom / 1.1) }
+  }
+  let done = false
+  const finish = v => {
+    if (done) return
+    done = true
+    try { $('cropDlg').close() } catch {}
+    try { src.close?.() } catch {}   // ImageBitmap はすぐ手放す（メモリ）
+    resolve(v)
+  }
+  $('cropOk').onclick = () => { const k = sc(); finish(renderAvatar(src, -ox / k, -oy / k, V / k)) }
+  $('cropCancel').onclick = () => finish(null)
+  $('cropDlg').onclose = () => finish(null)
+  draw()
+  try { $('cropDlg').showModal() } catch { finish(null) }
 })
 
 let curAvatar = null
@@ -3130,16 +3229,21 @@ const syncAvatarUI = avatar => {
 $('ceAvatarPick').onclick = () => { $('ceAvatarFile').click() }
 $('ceAvatarClear').onclick = () => {
   $('ceAvatarFile').value = ''
+  avatarMsg('')
   syncAvatarUI(null)
 }
 $('ceAvatarFile').onchange = async e => {
   const file = e.target.files?.[0]
+  e.target.value = ''   // 同じファイルを選び直せるように
   if (!file) return
+  avatarMsg('')
   try {
-    const dataUrl = await processAvatarFile(file)
-    syncAvatarUI(dataUrl)
+    const work = await loadWorkingImage(file)
+    const dataUrl = await openCrop(work)
+    if (dataUrl) syncAvatarUI(dataUrl)
+    else if (dataUrl === '') avatarMsg('⚠️ 画像を小さくできませんでした。別の画像でお試しください')
   } catch (err) {
-    alert(err.message || '画像の処理に失敗しました')
+    avatarMsg('⚠️ ' + (err.message || '画像の処理に失敗しました'))
   }
 }
 
@@ -7404,7 +7508,7 @@ const resetJoinedUI = () => {
   $('tagRow').hidden = true; $('tagForm').hidden = true   // 話題タグの行（join/leave の対称）
   $('tabChat').classList.remove('unread')                // ひとことの未読の点も持ち越さない
   clearTimeout(leaveConfirmTimer); $('leaveConfirm').hidden = true   // 退出の確認も畳む
-  try { $('cardDlg').close(); $('cardEditDlg').close(); $('cardWarnDlg').close(); $('cardAuthDlg').close() } catch {}
+  try { $('cardDlg').close(); $('cardEditDlg').close(); $('cardWarnDlg').close(); $('cardAuthDlg').close(); $('cropDlg').close() } catch {}
   // ★退出したら URL から部屋を落とす。参加時に焼き付けたままだと、**次に開いたとき
   //   「共有リンクから来た人」と区別がつかない**（＝最初の画面で「部屋を作る」が開いてしまう。
   //   2026-09-12 に利用者が遭遇）。URL としても、居ない部屋を指したままなのは嘘。
@@ -7516,7 +7620,7 @@ const leaveCall = () => {
   // つなぎ直しの失敗で一度手動で入り直した場合や、枠主が一時退出から戻った場合でも復元できるようにするため。
   // （明示的な登壇解除時は toggleGrant が双方で即時破棄する）
   clearTimeout(call.noticeTimer); showPeerNotice('')            // 前の通知を残さない
-  try { $('cardDlg').close(); $('cardEditDlg').close(); $('cardWarnDlg').close(); $('cardAuthDlg').close() } catch {}
+  try { $('cardDlg').close(); $('cardEditDlg').close(); $('cardWarnDlg').close(); $('cardAuthDlg').close(); $('cropDlg').close() } catch {}
   if (call.stream) call.stream.getTracks().forEach(t => t.stop())
   ;[...call.audios.keys()].forEach(dropAudios)                 // **reset で Map ごと捨てる前に** DOM を消す
   if (call.wakeLock) call.wakeLock.release().catch(() => {})
