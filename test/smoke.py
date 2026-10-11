@@ -1860,14 +1860,27 @@ def T31(r, room):
     popped = all(t.eval("!document.getElementById('mailPop').hidden"
                         " && document.getElementById('mailPopText').textContent === 'つけ麺'") for t in (a, b, c))
     passthru = b.eval("getComputedStyle(document.getElementById('mailPop')).pointerEvents") == 'none'
+    blurred = 'blur' in (b.eval("(() => { const st = getComputedStyle(document.getElementById('mailPop')); return st.backdropFilter || st.webkitBackdropFilter || '' })()") or '')
     # 閉じても行は残る（見失わない）／行を押すと開き直せる
     b.eval("document.getElementById('mailPopClose').click()")
     closed = b.eval("document.getElementById('mailPop').hidden") and not b.eval("document.getElementById('mailNow').hidden")
     b.eval("document.getElementById('mailNow').click()")
     reopened = b.eval("!document.getElementById('mailPop').hidden")
-    r.check('T31d', '公開されたお便りが紙で大きく出る（後ろは触れる）', popped and passthru and closed and reopened, 'pass',
-            '紙が出た=%s / 後ろを塞いでいない=%s / 閉じても行は残る=%s / 押すと開き直せる=%s'
-            % (popped, passthru, closed, reopened))
+    # v0.16.6：紙の外をタップしても閉じる（中のタップでは閉じない）。本物のマウス操作で
+    b.call('Page.bringToFront')
+    b.eval("document.querySelectorAll('dialog[open]').forEach(d => d.close())")   # ヘルプの窓が上にあるとタップがそちらに当たる
+    def tap(x, y):
+        b.call('Input.dispatchMouseEvent', type='mousePressed', x=x, y=y, button='left', clickCount=1)
+        b.call('Input.dispatchMouseEvent', type='mouseReleased', x=x, y=y, button='left', clickCount=1)
+        time.sleep(0.4)
+    cr = json.loads(b.eval("JSON.stringify(document.querySelector('#mailPop .mp-card').getBoundingClientRect())"))
+    tap(cr['left'] + cr['width'] / 2, cr['top'] + cr['height'] / 2)
+    inside_kept = b.eval("!document.getElementById('mailPop').hidden")
+    tap(cr['left'] + cr['width'] / 2, max(2, cr['top'] - 12))
+    outside_closed = b.eval("document.getElementById('mailPop').hidden") and not b.eval("document.getElementById('mailNow').hidden")
+    r.check('T31d', '公開されたお便りが紙で大きく出る（後ろは触れる）・紙の外のタップで閉じる', popped and passthru and blurred and closed and reopened and inside_kept and outside_closed, 'pass',
+            '紙が出た=%s / 後ろを塞いでいない=%s / 背景ぼかし=%s / 閉じても行は残る=%s / 押すと開き直せる=%s / 中のタップで閉じない=%s / 外のタップで閉じる=%s'
+            % (popped, passthru, blurred, closed, reopened, inside_kept, outside_closed))
     b.eval("document.getElementById('mailPopClose').click()")
     # 公開中のお便りは**タブの外**なので、どのタブにいても見える
     show_tab(c, 'members')
@@ -2382,11 +2395,16 @@ def T77(r, room):
     for t in (a, b):
         t.eval("localStorage.setItem('pot-call-hide-help','1'); document.querySelectorAll('dialog[open]').forEach(d => d.close())")
     # b：名前と名刺の bio に見えない文字を混ぜる（同じプロファイルなので名刺は localStorage を直接書く）
+    # ★smoke のタブは localStorage を共有し、通話中はプロフィールの編集がロックされる。A が入った**後**、B が入る**直前**に
+    #   保存済みのプロフィールの名前を書き換える（B は入るときにリンクで読み込み直すので、その名前で入る）
+    r.join(a, name)
+    a.wait_for("!document.getElementById('tabs').hidden", timeout=DISCOVER)
     b.eval("""(() => {
-        const i = document.getElementById('name'); i.value = 'ja\\u200Bck\\u2060\\u3164\\u202E'; i.dispatchEvent(new Event('input'))
+        const p = JSON.parse(localStorage.getItem('pot-call-profile') || '{}'); p.name = 'ja\\u200Bck\\u2060\\u3164\\u202E'
+        localStorage.setItem('pot-call-profile', JSON.stringify(p))
         localStorage.setItem('pot-call-card', JSON.stringify({ bio: 'he\\u200Bllo\\u2028\\uFEFF\\u00AD👨\\u200D👩\\u200D👧' }))
     })()""")
-    r.join(a, name); r.join(b, name)
+    r.join(b, name)
     joined = a.wait_for('%s === 2' % MEMBERS, timeout=DISCOVER) and b.wait_for('%s === 2' % MEMBERS, timeout=DISCOVER)
     shown_name = a.eval("[...document.querySelectorAll('#members .member')].filter(el => !el.querySelector('.you')).map(el => el.querySelector('.m-name').textContent).join('|')")
     b.eval("(() => { document.getElementById('tabChat')?.click(); const t = document.getElementById('chatText'); t.value = 'sa\\u200Cfe\\u2066'; document.getElementById('chatSend').click() })()")
@@ -2471,6 +2489,46 @@ def T79(r, room):
     ok = bool(joined and ln == 'lightning:%s _self' % addr and copy_shown and copied and clip in (addr, '') and https == 'https://ofuse.me/sampleuser _blank' and no_copy)
     r.check('T79', 'お礼の Zap は同じタブで開き・アドレスをコピーできる／https の窓口は新しいタブ・コピー欄なし', ok, 'pass',
             '参加=%s / Zap=%r / コピー欄=%s / コピー=%s(%r) / https=%r / コピー欄なし=%s' % (bool(joined), ln, copy_shown, bool(copied), clip, https, no_copy))
+    click_leave(a)
+
+
+def T80(r, room):
+    """名刺の窓は、背景（窓の外）をタップしても閉じる（v0.16.6・利用者の要望）
+
+    ①窓の中を押しても閉じない ②窓の中で押して外で離しても閉じない（文字を選ぶ途中）③窓の外を押すと閉じる
+    本物のマウス操作（Input.dispatchMouseEvent）で確かめる。
+    """
+    a = r.open_tab()
+    a.eval("localStorage.setItem('pot-call-hide-help','1'); document.querySelectorAll('dialog[open]').forEach(d => d.close())")
+    a.eval("localStorage.setItem('pot-call-card', JSON.stringify({ bio: '背景で閉じる確認' }))")
+    r.join(a, room + 'BKD')
+    joined = a.wait_for("!document.getElementById('tabs').hidden", timeout=DISCOVER)
+    a.call('Page.bringToFront')
+    OPEN_SELF = "(() => { const row = [...document.querySelectorAll('#members .member')].find(el => el.querySelector('.you')); row.querySelector('.m-tap').click() })()"
+    OPENED = "document.getElementById('cardDlg').open"
+    def press(x0, y0, x1=None, y1=None):
+        x1 = x0 if x1 is None else x1; y1 = y0 if y1 is None else y1
+        a.call('Input.dispatchMouseEvent', type='mousePressed', x=x0, y=y0, button='left', clickCount=1)
+        if (x1, y1) != (x0, y0):
+            a.call('Input.dispatchMouseEvent', type='mouseMoved', x=x1, y=y1, button='left')
+        a.call('Input.dispatchMouseEvent', type='mouseReleased', x=x1, y=y1, button='left', clickCount=1)
+        time.sleep(0.4)
+    a.eval(OPEN_SELF); a.wait_for(OPENED, timeout=SHORT)
+    rc = a.eval("JSON.stringify(document.getElementById('cardDlg').getBoundingClientRect())")
+    rc = json.loads(rc)
+    cx, cy = rc['left'] + rc['width'] / 2, rc['top'] + 40
+    press(cx, cy)
+    inside_kept = a.eval(OPENED)
+    press(cx, cy, 5, 5)
+    drag_kept = a.eval(OPENED)
+    press(5, 5)
+    closed = a.wait_for("!" + OPENED, timeout=SHORT)
+    a.eval(OPEN_SELF)
+    reopen = a.wait_for(OPENED, timeout=SHORT)
+    a.eval("document.querySelectorAll('dialog[open]').forEach(d => d.close()); localStorage.removeItem('pot-call-card')")
+    ok = bool(joined and inside_kept and drag_kept and closed and reopen)
+    r.check('T80', '名刺の窓：外をタップで閉じる・中のタップや中から外へのドラッグでは閉じない', ok, 'pass',
+            '参加=%s / 中で閉じない=%s / ドラッグで閉じない=%s / 外で閉じる=%s / 開き直せる=%s' % (bool(joined), inside_kept, drag_kept, bool(closed), bool(reopen)))
     click_leave(a)
 
 
@@ -3622,6 +3680,8 @@ def main():
             T78(r, room)
         if run('T79'):
             T79(r, room)
+        if run('T80'):
+            T80(r, room)
         if run('T27i'):
             T27i(r, room)
         if run('T27j'):

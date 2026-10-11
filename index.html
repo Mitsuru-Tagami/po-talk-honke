@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ぽっと通話〈実験版〉 v0.16.5
+  ぽっと通話〈実験版〉 v0.16.6
   同じ部屋名を開いた人どうしが、ブラウザだけで声でつながるミニ通話アプリ。
   サーバは持たない（相手発見＝公開Nostrリレー／音声＝WebRTC・Cloudflare TURN経由）。
   ビルドもパッケージも無く、この1ファイルで完結する。GitHub Pages で配信。
@@ -627,6 +627,7 @@
        画面はうっすら暗くするが、後ろのボタンはそのまま押せる。 */
   .mail-pop{ position:fixed; inset:0; z-index:70; display:flex; align-items:center; justify-content:center;
     padding:20px; background:rgba(3,8,18,.42); pointer-events:none;
+    -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);   /* 名刺の窓の背景と同じぼかし（v0.16.6）。見た目だけで、後ろは押せるまま */
     animation:mail-in .22s ease-out }
   @keyframes mail-in{ from{ opacity:0 } to{ opacity:1 } }
   @media (prefers-reduced-motion:reduce){ .mail-pop{ animation:none } }
@@ -1688,7 +1689,7 @@ window.__potPending = () => { try { return pendingPeers().map(p => p.name || p.i
 // ───────────────────────────────────────────────────────────────────────────
 // 版。**ここが唯一の定義**（画面表示もここから入れる）。ファイル冒頭のコメントにも同じ番号が
 // 書いてあるので、上げるときは両方直すこと（食い違いは test/smoke.py の T15 が検出する）。
-const APP_VERSION = 'v0.16.5'
+const APP_VERSION = 'v0.16.6'
 
 const $ = id => document.getElementById(id)
 // localStorage は**必ずここを通す**。Safari のプライベートモードやストレージ拒否の環境では
@@ -2959,7 +2960,23 @@ const renderCardIfViewing = uid => {
     renderCardView(uid, call.cardCache.get(uid))
   }
 }
-$('cdClose').onclick = () => { call.cardViewing = null; $('cardDlg').close() }
+$('cdClose').onclick = () => { $('cardDlg').close() }
+$('cardDlg').addEventListener('close', () => { call.cardViewing = null })   // ✕・背景・Esc のどれで閉じても
+// 背景（窓の外）をタップしても閉じる（v0.16.6・利用者の要望）。名刺の閲覧と、そこから開く確認の窓だけ。
+// 編集・本人確認の窓は付けない（入力中に背景へ触れると書きかけが消えるため）。
+// 押した所と離した所が**両方とも窓の外**のときだけ閉じる（文字を選ぶ途中で指が外へ出ただけでは閉じない）
+const closeOnBackdrop = dlg => {
+  const outside = e => {
+    if (e.target !== dlg) return false   // 窓の中身の上
+    const r = dlg.getBoundingClientRect()
+    return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom
+  }
+  let downOut = false
+  dlg.addEventListener('pointerdown', e => { downOut = outside(e) })
+  dlg.addEventListener('click', e => { if (downOut && outside(e)) dlg.close(); downOut = false })
+}
+closeOnBackdrop($('cardDlg'))
+closeOnBackdrop($('cardWarnDlg'))
 $('cdEditBtn').onclick = () => { $('cardDlg').close(); openCardEdit() }
 
 // https のリンクは新しいタブ、それ以外（lightning: など）は同じタブで開く。アプリに渡す形式を新しいタブで
@@ -6217,6 +6234,7 @@ const onOwnerAuthed = own => {
     call.reqOpenSeen = e.on; if (!e.on) call.myReq = false
   }
   ttsSync(); maybeAdoptBgm()
+  if (!call.ownerKey) sendMail({ k: 'ask' }, own)   // いまの募集と公開中のお便りを取りに行く（本人確認の後・上の acceptRoster の注）
   // 確認前に届いていた配信者の音（取り置き）をそのまま載せる。無ければ／トラックが終わっていれば、
   // 昇格時と同じやり方で「送り直して」を頼んで取り戻す。
   const h = call.ownerHold; call.ownerHold = null
@@ -6260,7 +6278,9 @@ const acceptRoster = async d => {
   // 枠主からの push（mailSync）は**名簿より先に着くことがある**（名簿の送信は署名の計算を挟むので
   // 非同期）。先に着いた分は ownerPeer が未確定なので捨てられる＝**後から入った人に募集が出ない**
   // （2026-08-17 に利用者が発見）。順番に依存しないよう、こちら側から引きにいく形にした。
-  if (ownerChanged && own && !call.ownerKey) sendMail({ k: 'ask' }, own)
+  // ★v0.16.6：引きにいくのは**本人確認が取れてから**（onOwnerAuthed）。名簿の時点で頼むと、返事が本人確認より
+  //   先に着いたとき「確認前の配信者の合図」として捨てられ、二度と頼み直さない（v0.15.28〜の競合・T31c が揺れていた）。
+  //   両方で頼むと配信者側の連打よけ（MAIL_ACCEPT_MS）で 2 回目が捨てられるので、ここでは頼まない
   // 入室通知（v0.15.11）：配信者が分かった＝部屋に届く合図。1 セッション 1 回だけ、全員へ送る。
   if (!call.enterSent && own && !call.ownerKey) { call.enterSent = true; sendEnterNotice() }
   maybeAdoptBgm()   // 配信部屋：配信者（源）が確定した＝場の BGM をもらえる（v0.15.16）
@@ -6556,6 +6576,21 @@ mailText.addEventListener('keydown', e => {
 // 新しく来た人に、いまの募集と公開中のお便りを渡す（枠主だけが持っている情報なので枠主が配る）
 // 紙を閉じる／開き直す。**自分の画面だけ**の話で、相手には何も送らない。
 $('mailPopClose').onclick = () => { call.mailPop = false; renderMailNow() }
+// 紙の外をタップしても閉じる（v0.16.6・利用者の要望。名刺の窓と揃える）。紙は**モーダルにしない**作りのまま＝
+// 外のタップは後ろのボタン（ミュート・退出など）にもそのまま届く（止めない）。スクロールで閉じないよう、
+// 押した所から 10px 以内で離したときだけ（＝タップ）。開く操作（「いま読まれているお便り」の行）は click で
+// 開くので、ここ（pointerup）では閉じた状態のまま素通りする
+{
+  let down = null
+  document.addEventListener('pointerdown', e => {
+    const pop = $('mailPop')
+    down = !pop.hidden && !e.target.closest('.mp-card') ? { x: e.clientX, y: e.clientY } : null
+  }, true)
+  document.addEventListener('pointerup', e => {
+    if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 10 && !$('mailPop').hidden) { call.mailPop = false; renderMailNow() }
+    down = null
+  }, true)
+}
 $('mailNow').onclick = () => { if (call.mailShown) { call.mailPop = true; renderMailNow() } }
 const mailSync = id => {
   if (!call.ownerKey) return
