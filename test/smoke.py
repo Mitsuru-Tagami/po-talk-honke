@@ -2645,6 +2645,33 @@ def T82(r, room):
             % (bool(opened), red, px, kept, white, px2, bool(refused), no_crop))
 
 
+def T83(r, room):
+    """通話中に花が育ったら、相手のメンバー一覧の花も追従する（v0.16.9・利用者の指摘「メンバー一覧と部屋カードで育ち具合がずれる」）
+
+    累積をあと 30 秒で 🌱 → 🌿 に育つ値にして入る（4 分 30 秒・参加 2 回 → 入室で 3 回）。プロフィールは入室・マイク・ミュートの
+    ときしか送っていなかったので、修正前は相手の一覧だけ入室時の 🌱 のままだった（ロビーの在室は 5 秒ごとなので追従していた）。
+    """
+    name = room + 'GRW'
+    a = r.open_tab()
+    a.eval("localStorage.setItem('pot-call-hide-help','1'); localStorage.setItem('pot-call-stats', JSON.stringify({ seconds: 270, joins: 2, days: 1, lastDay: '' }))")
+    a.call('Page.reload')
+    a.wait_for(BOOTED, timeout=SHORT)
+    a.eval("document.querySelectorAll('dialog[open]').forEach(d => d.close())")
+    b = r.open_tab()
+    b.eval("localStorage.setItem('pot-call-hide-help','1'); document.querySelectorAll('dialog[open]').forEach(d => d.close())")
+    r.join(a, name); r.join(b, name)
+    joined = a.wait_for('%s === 2' % MEMBERS, timeout=DISCOVER) and b.wait_for('%s === 2' % MEMBERS, timeout=DISCOVER)
+    PEER_STAGE = "(() => { const row = [...document.querySelectorAll('#members .member')].find(el => !el.querySelector('.you')); const s = row && row.querySelector('.m-stage'); return s ? s.textContent : '' })()"
+    first = b.eval(PEER_STAGE)
+    grown = b.wait_for(PEER_STAGE + " === '🌿'", timeout=50)
+    a_self = a.eval("(() => { const s = document.querySelector('#members .member .you')?.closest('.member')?.querySelector('.m-stage'); return s ? s.textContent : '' })()")
+    ok = bool(joined and first == '🌱' and grown)
+    r.check('T83', '通話中に花が育ったら、相手のメンバー一覧の花も追従する', ok, 'pass',
+            '参加=%s / はじめ=%r / 30 秒後に相手の一覧で 🌿=%s / 本人の行=%r' % (bool(joined), first, bool(grown), a_self))
+    a.eval("localStorage.removeItem('pot-call-stats')")
+    click_leave(a); click_leave(b)
+
+
 def T73(r):
     """プロフィールカード編集＆認証チャレンジUI（v0.16.0）：
     編集モーダル（#cardEditDlg）展開、SNS入力で認証ボタン出現、
@@ -3799,6 +3826,8 @@ def main():
             T81(r, room)
         if run('T82'):
             T82(r, room)
+        if run('T83'):
+            T83(r, room)
         if run('T27i'):
             T27i(r, room)
         if run('T27j'):
