@@ -2607,6 +2607,9 @@ def T82(r, room):
     # ①ドラッグで位置を決める
     a.eval(PICK % json.dumps('rb'))
     opened = a.wait_for("document.getElementById('cropDlg').open", timeout=SHORT)
+    # v0.16.10：開いた瞬間のフォーカスは「決定」（canvas に当たると枠が角丸からはみ出して見えた）・canvas に内側の枠を描かない
+    focus_ok = a.eval("document.activeElement && document.activeElement.id") == 'cropOk'
+    no_ring = a.eval("(() => { const c = document.getElementById('cropCanvas'); c.focus(); const o = getComputedStyle(c).outlineStyle; document.getElementById('cropOk').focus(); return o })()") == 'none'
     rc = json.loads(a.eval("JSON.stringify(document.getElementById('cropCanvas').getBoundingClientRect())"))
     cx, cy = rc['left'] + rc['width'] / 2, rc['top'] + rc['height'] / 2
     a.call('Input.dispatchMouseEvent', type='mousePressed', x=cx, y=cy, button='left', clickCount=1)
@@ -2639,10 +2642,10 @@ def T82(r, room):
     refused = a.wait_for("!document.getElementById('ceAvatarMsg').hidden && document.getElementById('ceAvatarMsg').textContent.includes('大きすぎます')", timeout=SHORT)
     no_crop = not a.eval("document.getElementById('cropDlg').open")
     a.eval("document.querySelectorAll('dialog[open]').forEach(d => d.close()); localStorage.removeItem('pot-call-card')")
-    ok = bool(opened and red and kept and white and refused and no_crop)
-    r.check('T82', '名刺の画像：切り抜きの位置が反映・透明は白・JPEG で 4 万文字以内・やめるで変わらない・30MB 超は断る', ok, 'pass',
-            '窓=%s / ドラッグ位置（真ん中が赤）=%s(%s) / やめる=%s / 透明は白=%s(%s) / 大きすぎを断る=%s / 窓を開かない=%s'
-            % (bool(opened), red, px, kept, white, px2, bool(refused), no_crop))
+    ok = bool(opened and focus_ok and no_ring and red and kept and white and refused and no_crop)
+    r.check('T82', '名刺の画像：切り抜きの位置が反映・透明は白・JPEG で 4 万文字以内・やめるで変わらない・30MB 超は断る・枠のはみ出しなし', ok, 'pass',
+            'フォーカスは決定=%s / canvas に内側の枠なし=%s / 窓=%s / ドラッグ位置（真ん中が赤）=%s(%s) / やめる=%s / 透明は白=%s(%s) / 大きすぎを断る=%s / 窓を開かない=%s'
+            % (focus_ok, no_ring, bool(opened), red, px, kept, white, px2, bool(refused), no_crop))
 
 
 def T83(r, room):

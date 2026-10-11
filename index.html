@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ぽっと通話〈実験版〉 v0.16.9
+  ぽっと通話〈実験版〉 v0.16.10
   同じ部屋名を開いた人どうしが、ブラウザだけで声でつながるミニ通話アプリ。
   サーバは持たない（相手発見＝公開Nostrリレー／音声＝WebRTC・Cloudflare TURN経由）。
   ビルドもパッケージも無く、この1ファイルで完結する。GitHub Pages で配信。
@@ -246,7 +246,10 @@
     border:1px solid var(--border-soft); box-shadow:0 2px 10px rgba(0,0,0,.18); touch-action:none }
   #cropCanvas{ width:240px; height:240px; display:block; cursor:grab; touch-action:none }
   #cropCanvas:active{ cursor:grabbing }
-  #cropCanvas:focus-visible{ outline:2px solid var(--link); outline-offset:-2px }
+  /* フォーカスの印は**角丸の外側**に出す（v0.16.10）。canvas に内側の outline を引くと、角丸で切り取られて上と左だけ
+     緑の線がはみ出して見えた（iPhone は窓を開いた瞬間に最初の要素へフォーカスを当てる・10-12 利用者の報告） */
+  #cropCanvas:focus, #cropCanvas:focus-visible{ outline:none }
+  .crop-view:has(#cropCanvas:focus-visible){ box-shadow:0 0 0 3px var(--link), 0 2px 10px rgba(0,0,0,.18) }
   .crop-zoom{ display:flex; align-items:center; gap:8px; margin:0 0 4px }
   .crop-zoom input{ flex:1; width:auto; margin:0; accent-color:var(--accent) }
   .cd-tip-ln button{ width:100%; margin:0; padding:8px 12px; font-size:13px; font-weight:700; border-radius:9px; background:var(--chip); color:var(--chip-fg); border:1px solid var(--border-soft); cursor:pointer }
@@ -1598,7 +1601,7 @@
   <div class="crop-view"><canvas id="cropCanvas" tabindex="0" aria-label="切り抜く位置。ドラッグか矢印キーで動かし、＋と－で拡大します"></canvas></div>
   <label class="crop-zoom"><span aria-hidden="true">🔍</span><input type="range" id="cropZoom" min="1" max="4" step="0.01" value="1" aria-label="拡大"></label>
   <div class="ce-actions">
-    <button id="cropOk" type="button">決定</button>
+    <button id="cropOk" type="button" autofocus>決定</button>
     <button id="cropCancel" type="button">やめる</button>
   </div>
 </dialog>
@@ -1714,7 +1717,7 @@ window.__potPending = () => { try { return pendingPeers().map(p => p.name || p.i
 // ───────────────────────────────────────────────────────────────────────────
 // 版。**ここが唯一の定義**（画面表示もここから入れる）。ファイル冒頭のコメントにも同じ番号が
 // 書いてあるので、上げるときは両方直すこと（食い違いは test/smoke.py の T15 が検出する）。
-const APP_VERSION = 'v0.16.9'
+const APP_VERSION = 'v0.16.10'
 
 const $ = id => document.getElementById(id)
 // localStorage は**必ずここを通す**。Safari のプライベートモードやストレージ拒否の環境では
