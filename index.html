@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ぽっと通話〈実験版〉 v0.16.4
+  ぽっと通話〈実験版〉 v0.16.5
   同じ部屋名を開いた人どうしが、ブラウザだけで声でつながるミニ通話アプリ。
   サーバは持たない（相手発見＝公開Nostrリレー／音声＝WebRTC・Cloudflare TURN経由）。
   ビルドもパッケージも無く、この1ファイルで完結する。GitHub Pages で配信。
@@ -241,6 +241,8 @@
   .help-dialog p.cd-tip-note{ margin:6px 0 0; font-size:12px; color:var(--note); line-height:1.5 }
   .help-dialog p.cd-tip-trust{ margin:8px 0 0; font-size:12.5px; color:var(--text); line-height:1.5 }
   .cd-tip.weak{ border-color:var(--border-soft); background:var(--panel) }
+  .cd-tip-ln{ margin-top:8px }
+  .cd-tip-ln button{ width:100%; margin:0; padding:8px 12px; font-size:13px; font-weight:700; border-radius:9px; background:var(--chip); color:var(--chip-fg); border:1px solid var(--border-soft); cursor:pointer }
   .cd-tip.weak a{ background:var(--chip); color:var(--chip-fg) !important; font-weight:600 }
   .cd-verify{ margin:0 0 12px }
   .cd-verify button{ width:100%; margin:0; padding:9px 12px; font-size:13px; font-weight:700; border-radius:9px; background:var(--accent-dim); color:var(--link); border:1px solid var(--link); cursor:pointer }
@@ -1461,6 +1463,10 @@
   <div class="cd-tip" id="cdTip" hidden>
     <a id="cdTipLink" href="#" target="_blank" rel="noopener noreferrer nofollow">お礼を贈る</a>
     <div class="cd-tip-sub" id="cdTipSub"></div>
+    <div class="cd-tip-ln" id="cdTipLn" hidden>
+      <button id="cdTipCopy" type="button">📋 アドレスをコピー</button>
+      <p class="cd-tip-note">Lightning ウォレットのアプリ（Wallet of Satoshi・Phoenix など）が入っていると、上のボタンでアプリが開きます。開けないときはアドレスをコピーして、ウォレットに貼ってください。</p>
+    </div>
     <p class="cd-tip-trust" id="cdTipTrust" hidden></p>
     <p class="cd-tip-note">※ お礼リンクは本人が設定したものです（運営は確認していません）</p>
   </div>
@@ -1682,7 +1688,7 @@ window.__potPending = () => { try { return pendingPeers().map(p => p.name || p.i
 // ───────────────────────────────────────────────────────────────────────────
 // 版。**ここが唯一の定義**（画面表示もここから入れる）。ファイル冒頭のコメントにも同じ番号が
 // 書いてあるので、上げるときは両方直すこと（食い違いは test/smoke.py の T15 が検出する）。
-const APP_VERSION = 'v0.16.4'
+const APP_VERSION = 'v0.16.5'
 
 const $ = id => document.getElementById(id)
 // localStorage は**必ずここを通す**。Safari のプライベートモードやストレージ拒否の環境では
@@ -2832,6 +2838,13 @@ const renderCardView = (uid, cardData) => {
     $('cdTip').classList.toggle('weak', !tr.strong)
     $('cdTipLink').textContent = tipDef.label
     $('cdTipLink').href = tipDef.url(tip.id)
+    linkTarget($('cdTipLink'), tipDef.url(tip.id))
+    // Lightning アドレス（lightning:）はウォレットアプリが無いと開けない（iOS は「アドレスが無効」・10-11 テスターの報告）
+    //   ＝アドレスをコピーする道を必ず添える
+    const ln = tipDef.url(tip.id).startsWith('lightning:')
+    $('cdTipLn').hidden = !ln
+    $('cdTipCopy').textContent = '📋 アドレスをコピー'
+    $('cdTipCopy').onclick = () => copyText(tip.id).then(ok => { $('cdTipCopy').textContent = ok ? '✅ コピーしました（ウォレットに貼ってください）' : 'コピーできませんでした：' + tip.id })
     $('cdTipSub').textContent = tipDef.name + ': ' + shortenNpub(tip.id)
     $('cdTipTrust').textContent = tr.text
     $('cdTipTrust').hidden = !tr.text
@@ -2949,11 +2962,22 @@ const renderCardIfViewing = uid => {
 $('cdClose').onclick = () => { call.cardViewing = null; $('cardDlg').close() }
 $('cdEditBtn').onclick = () => { $('cardDlg').close(); openCardEdit() }
 
+// https のリンクは新しいタブ、それ以外（lightning: など）は同じタブで開く。アプリに渡す形式を新しいタブで
+// 開くと、空のタブが残ったり「アドレスが無効」になったりする（iOS Safari・v0.16.4）
+const linkTarget = (a, url) => { a.target = /^https?:/i.test(url) ? '_blank' : '_self' }
+const copyText = async t => {
+  try { await navigator.clipboard.writeText(t); return true } catch {}
+  try {   // 古いブラウザ・権限が無いとき：選択してコピー
+    const ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0'
+    document.body.append(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok
+  } catch { return false }
+}
 // リンクを開く前の確認（未認証の SNS・確かめていないお礼など）
 const openLinkConfirm = (title, msg, url, kind) => {
   $('cdWarnTitle').textContent = title
-  $('cdWarnMsg').textContent = msg
+  $('cdWarnMsg').textContent = msg + (url.startsWith('lightning:') ? '（Lightning ウォレットのアプリが無いと開けません。名刺の「アドレスをコピー」も使えます）' : '')
   $('cdWarnGo').href = url
+  linkTarget($('cdWarnGo'), url)
   $('cardWarnDlg').classList.toggle('ok', kind === 'ok')
   $('cdWarnGo').onclick = () => { try { $('cardWarnDlg').close() } catch {} }
   try { $('cardWarnDlg').showModal() } catch { window.open(url, '_blank', 'noopener,noreferrer') }

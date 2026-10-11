@@ -2435,6 +2435,45 @@ def T78(r, room):
     click_leave(a)
 
 
+def T79(r, room):
+    """お礼の Zap（Lightning アドレス）：同じタブで開き（ウォレットアプリに渡す）、アドレスをコピーできる（v0.16.5・10-11 テスターの報告）
+
+    lightning: を新しいタブで開くと、iOS Safari は「アドレスが無効です」になる（アプリが無いときも同じ）。
+    https の窓口（OFUSE など）は従来どおり新しいタブ・コピーの欄は出ない。
+    """
+    addr = 'potalk_test@walletofsatoshi.com'
+    a = r.open_tab()
+    a.eval("localStorage.setItem('pot-call-hide-help','1'); document.querySelectorAll('dialog[open]').forEach(d => d.close())")
+    a.eval("localStorage.setItem('pot-call-card', JSON.stringify({ tip: { p: 'zap', id: %s } }))" % js_str(addr))
+    try:
+        a.call('Browser.grantPermissions', permissions=['clipboardReadWrite', 'clipboardSanitizedWrite'], origin=r.args.url.rstrip('/'))
+    except Exception:
+        pass
+    r.join(a, room + 'ZAP')
+    joined = a.wait_for("!document.getElementById('tabs').hidden", timeout=DISCOVER)
+    OPEN_SELF = "(() => { const row = [...document.querySelectorAll('#members .member')].find(el => el.querySelector('.you')); row.querySelector('.m-tap').click() })()"
+    a.eval(OPEN_SELF)
+    a.wait_for("document.getElementById('cardDlg').open && !document.getElementById('cdTip').hidden", timeout=SHORT)
+    ln = a.eval("(() => { const l = document.getElementById('cdTipLink'); return l.getAttribute('href') + ' ' + l.target })()")
+    copy_shown = a.eval("!document.getElementById('cdTipLn').hidden")
+    a.call('Page.bringToFront')
+    a.eval("document.getElementById('cdTipCopy').click()")
+    copied = a.wait_for("document.getElementById('cdTipCopy').textContent.includes('コピーしました')", timeout=SHORT)
+    clip = a.eval("navigator.clipboard.readText().catch(() => '')")
+    a.eval("document.querySelectorAll('dialog[open]').forEach(d => d.close())")
+    # https の窓口は新しいタブ・コピーの欄なし
+    a.eval("localStorage.setItem('pot-call-card', JSON.stringify({ tip: { p: 'ofuse', id: 'sampleuser' } }))")
+    a.eval(OPEN_SELF)
+    a.wait_for("document.getElementById('cardDlg').open && document.getElementById('cdTipSub').textContent.includes('sampleuser')", timeout=SHORT)
+    https = a.eval("(() => { const l = document.getElementById('cdTipLink'); return l.getAttribute('href') + ' ' + l.target })()")
+    no_copy = a.eval("document.getElementById('cdTipLn').hidden")
+    a.eval("document.querySelectorAll('dialog[open]').forEach(d => d.close()); localStorage.removeItem('pot-call-card')")
+    ok = bool(joined and ln == 'lightning:%s _self' % addr and copy_shown and copied and clip in (addr, '') and https == 'https://ofuse.me/sampleuser _blank' and no_copy)
+    r.check('T79', 'お礼の Zap は同じタブで開き・アドレスをコピーできる／https の窓口は新しいタブ・コピー欄なし', ok, 'pass',
+            '参加=%s / Zap=%r / コピー欄=%s / コピー=%s(%r) / https=%r / コピー欄なし=%s' % (bool(joined), ln, copy_shown, bool(copied), clip, https, no_copy))
+    click_leave(a)
+
+
 def T73(r):
     """プロフィールカード編集＆認証チャレンジUI（v0.16.0）：
     編集モーダル（#cardEditDlg）展開、SNS入力で認証ボタン出現、
@@ -3581,6 +3620,8 @@ def main():
             T77(r, room)
         if run('T78'):
             T78(r, room)
+        if run('T79'):
+            T79(r, room)
         if run('T27i'):
             T27i(r, room)
         if run('T27j'):
