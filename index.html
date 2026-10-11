@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ぽっと通話〈実験版〉 v0.16.3
+  ぽっと通話〈実験版〉 v0.16.4
   同じ部屋名を開いた人どうしが、ブラウザだけで声でつながるミニ通話アプリ。
   サーバは持たない（相手発見＝公開Nostrリレー／音声＝WebRTC・Cloudflare TURN経由）。
   ビルドもパッケージも無く、この1ファイルで完結する。GitHub Pages で配信。
@@ -1682,7 +1682,7 @@ window.__potPending = () => { try { return pendingPeers().map(p => p.name || p.i
 // ───────────────────────────────────────────────────────────────────────────
 // 版。**ここが唯一の定義**（画面表示もここから入れる）。ファイル冒頭のコメントにも同じ番号が
 // 書いてあるので、上げるときは両方直すこと（食い違いは test/smoke.py の T15 が検出する）。
-const APP_VERSION = 'v0.16.3'
+const APP_VERSION = 'v0.16.4'
 
 const $ = id => document.getElementById(id)
 // localStorage は**必ずここを通す**。Safari のプライベートモードやストレージ拒否の環境では
@@ -3550,6 +3550,11 @@ const asButton = (el, fn, label) => {
   el.onclick = fn
   el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(e) } }
 }
+// ★日本語入力の「変換を確定する Enter」では送らない（ひとこと・おたより・話題タグ共通・v0.16.3）。
+//   isComposing だけでは足りない：Mac の Safari は変換の確定（compositionend）の**後**に keydown を送り、そのとき
+//   isComposing は false・keyCode は 229 になる（PC で確定の Enter がそのまま送信になっていた・10-11 利用者の報告）。
+//   ひとことと、おたよりは isComposing しか見ておらず、話題タグだけ 229 も見ていた
+const imeEnter = e => e.isComposing || e.keyCode === 229
 const memberRow = (emoji, name, you, isMuted, stage, relay, action, bc, onCard) => {
   const row = document.createElement('div'); row.className = 'member' + (isMuted ? ' muted' : '')
   const av = document.createElement('span'); av.className = 'm-emoji'; av.textContent = emoji || '🙂'
@@ -5471,9 +5476,7 @@ $('tagEdit').onclick = () => {
   if (!f.hidden) { $('tagInput').value = call.meta.tag || ''; $('tagInput').focus(); $('tagInput').select() }
 }
 $('tagSend').onclick = () => { setTag($('tagInput').value.trim()); $('tagForm').hidden = true }
-// ★変換中の Enter（IME の確定）では送らない。isComposing を見る（ひとこと・おたよりと同じ作法）。
-//   古い Safari は確定の Enter で isComposing が false のことがあるので keyCode 229 も併せて見る
-$('tagInput').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); $('tagSend').onclick() } })
+$('tagInput').addEventListener('keydown', e => { if (e.key === 'Enter' && !imeEnter(e)) { e.preventDefault(); $('tagSend').onclick() } })
 const render = () => {
   renderTag()
   if (!call.joinedId) return
@@ -6060,7 +6063,7 @@ window.visualViewport?.addEventListener('resize', () => {
 })
 chatText.addEventListener('keydown', e => {
   // 変換中の Enter で送らない（日本語入力では確定にも Enter を使う）
-  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); sendChat() }
+  if (e.key === 'Enter' && !imeEnter(e)) { e.preventDefault(); sendChat() }
 })
 
 // 「退出した」のか「接続が切れた」のかを書き分ける。
@@ -6524,7 +6527,7 @@ function mailPost() {
 }
 mailSend.onclick = () => { if (call.ownerKey) mailOpenCall(); else mailPost() }
 mailText.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); mailSend.click() }   // 変換中の Enter で送らない
+  if (e.key === 'Enter' && !imeEnter(e)) { e.preventDefault(); mailSend.click() }   // 変換中・変換確定の Enter で送らない
 })
 // 新しく来た人に、いまの募集と公開中のお便りを渡す（枠主だけが持っている情報なので枠主が配る）
 // 紙を閉じる／開き直す。**自分の画面だけ**の話で、相手には何も送らない。

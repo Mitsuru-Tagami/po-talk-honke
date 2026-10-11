@@ -2405,6 +2405,36 @@ def T77(r, room):
     click_leave(a); click_leave(b)
 
 
+def T78(r, room):
+    """日本語入力の「変換を確定する Enter」では、ひとことを送らない（v0.16.3・10-11 利用者の報告）
+
+    Mac の Safari は変換の確定の後に keydown を送り、そのとき isComposing は false・keyCode は 229。
+    isComposing だけを見ていると、確定の Enter がそのまま送信になる。合成イベントで 3 通りを確かめる：
+    ①変換中（isComposing=true）②確定の Enter（isComposing=false・keyCode=229）→ どちらも送らない ③ふつうの Enter → 送る
+    """
+    a = r.open_tab()
+    a.eval("localStorage.setItem('pot-call-hide-help','1'); document.querySelectorAll('dialog[open]').forEach(d => d.close())")
+    r.join(a, room + 'IME')
+    joined = a.wait_for("!document.getElementById('tabs').hidden", timeout=DISCOVER)
+    a.eval("document.getElementById('tabChat')?.click()")
+    ROWS = "document.querySelectorAll('#chatLog .cl-row:not(.cl-sys)').length"
+    KEY = """(() => { const t = document.getElementById('chatText'); t.value = %s; t.focus()
+        const e = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, isComposing: %s })
+        Object.defineProperty(e, 'keyCode', { get: () => %d }); t.dispatchEvent(e) })()"""
+    n0 = a.eval(ROWS)
+    a.eval(KEY % ("'へんかんちゅう'", 'true', 229)); time.sleep(0.5)
+    n1 = a.eval(ROWS)
+    a.eval(KEY % ("'変換確定'", 'false', 229)); time.sleep(0.5)
+    n2 = a.eval(ROWS)
+    kept = a.eval("document.getElementById('chatText').value")
+    a.eval(KEY % ("'送る'", 'false', 13))
+    sent = a.wait_for("%s === %d" % (ROWS, n0 + 1), timeout=SHORT)
+    ok = bool(joined and n1 == n0 and n2 == n0 and kept == '変換確定' and sent)
+    r.check('T78', '変換中・変換確定（keyCode 229）の Enter では送らず、ふつうの Enter で送る', ok, 'pass',
+            '参加=%s / 変換中で送らない=%s / 確定で送らない=%s（欄に残る=%r）/ ふつうの Enter で送る=%s' % (bool(joined), n1 == n0, n2 == n0, kept, bool(sent)))
+    click_leave(a)
+
+
 def T73(r):
     """プロフィールカード編集＆認証チャレンジUI（v0.16.0）：
     編集モーダル（#cardEditDlg）展開、SNS入力で認証ボタン出現、
@@ -3549,6 +3579,8 @@ def main():
             T76(r, room)
         if run('T77'):
             T77(r, room)
+        if run('T78'):
+            T78(r, room)
         if run('T27i'):
             T27i(r, room)
         if run('T27j'):
