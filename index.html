@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ぽっと通話〈実験版〉 v0.16.2
+  ぽっと通話〈実験版〉 v0.16.3
   同じ部屋名を開いた人どうしが、ブラウザだけで声でつながるミニ通話アプリ。
   サーバは持たない（相手発見＝公開Nostrリレー／音声＝WebRTC・Cloudflare TURN経由）。
   ビルドもパッケージも無く、この1ファイルで完結する。GitHub Pages で配信。
@@ -1682,7 +1682,7 @@ window.__potPending = () => { try { return pendingPeers().map(p => p.name || p.i
 // ───────────────────────────────────────────────────────────────────────────
 // 版。**ここが唯一の定義**（画面表示もここから入れる）。ファイル冒頭のコメントにも同じ番号が
 // 書いてあるので、上げるときは両方直すこと（食い違いは test/smoke.py の T15 が検出する）。
-const APP_VERSION = 'v0.16.2'
+const APP_VERSION = 'v0.16.3'
 
 const $ = id => document.getElementById(id)
 // localStorage は**必ずここを通す**。Safari のプライベートモードやストレージ拒否の環境では
@@ -2016,7 +2016,14 @@ $('share').addEventListener('click', async e => {
 // 内訳：制御文字 / U+061C アラビア文字マーク / U+200E,200F 左右マーク /
 //       U+202A-202E 埋め込み・上書き / U+2066-2069 分離。**エスケープで書くこと**
 //       （実体を貼ると見えない文字がソースに埋まり、後から誰も気づけなくなる）
-const UNSAFE_CHARS = /[\p{Cc}\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu
+// ★v0.16.3：**見えない文字**も落とす（監査の改善メモ・名刺のなりすまし対策）。「jack」と「ja⁠ck」（間に見えない
+//   文字）は画面では同じに見えるので、名乗りの偽装に使える。内訳：U+00AD ソフトハイフン / U+034F 結合用書記素ジョイナ /
+//   U+115F,1160,3164,FFA0 ハングルの埋め文字（見えない名前の常套手段）/ U+180E モンゴル母音区切り /
+//   U+200B,200C 幅ゼロの空白・非結合子 / U+2028,2029 行・段落区切り / U+2060-2064 語結合子と見えない演算子 / U+FEFF BOM。
+//   **残すもの**：U+200D（ZWJ・絵文字の結合）・U+FE00-FE0F（異体字セレクタ・絵文字の見た目）・U+E0020-E007F（旗のタグ文字）。
+//   どれも消すと絵文字が壊れる（⛰️ 👨‍👩‍👧 🏴󠁧󠁢󠁳󠁣󠁴󠁿）。
+//   ※名前が ID そのものだった古い部屋（`#部屋名`）の名前にこれらが入っていた場合だけ、新旧で別の部屋になる（実害は無視できる）
+const UNSAFE_CHARS = /[\p{Cc}\u00AD\u034F\u061C\u115F\u1160\u180E\u200B\u200C\u200E\u200F\u2028\u2029\u202A-\u202E\u2060-\u2064\u2066-\u2069\u3164\uFEFF\uFFA0]/gu
 const capText = (v, max, fallback = '') =>
   [...String(v ?? fallback).replace(UNSAFE_CHARS, '')].slice(0, max).join('')
 
@@ -2306,7 +2313,7 @@ const applyAutoRoom = () => {
     syncRoomCount(); syncShare()
   }
 }
-nameInput.oninput = () => { profile.name = nameInput.value.trim(); saveProfile(); applyAutoRoom(); renderProfileSummary() }
+nameInput.oninput = () => { profile.name = capText(nameInput.value.trim(), 20); saveProfile(); applyAutoRoom(); renderProfileSummary() }   // 自分の画面も相手と同じ整形（見えない文字を落とす・v0.16.3）
 applyAutoRoom()  // 読込時：ハッシュが無ければ保存済みの名前から初期値を作る
 
 const avatarsEl = $('avatars')

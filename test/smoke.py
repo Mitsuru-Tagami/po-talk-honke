@@ -2371,6 +2371,40 @@ def T76(r, room):
     click_leave(a)
 
 
+def T77(r, room):
+    """見えない文字・向きを変える文字の掃除（v0.16.3）：名前・ひとこと・名刺の bio に混ぜても、相手の画面では消えている
+
+    「jack」と「ja＋見えない文字＋ck」は画面で同じに見えるので、名乗りの偽装に使える（監査の改善メモ・名刺のなりすまし対策）。
+    絵文字の結合（ZWJ）は残る（👨‍👩‍👧 が壊れない）。JS 側では \\u エスケープで書く（実体を貼らない）。
+    """
+    name = room + 'INV'
+    a, b = r.open_tab(), r.open_tab()
+    for t in (a, b):
+        t.eval("localStorage.setItem('pot-call-hide-help','1'); document.querySelectorAll('dialog[open]').forEach(d => d.close())")
+    # b：名前と名刺の bio に見えない文字を混ぜる（同じプロファイルなので名刺は localStorage を直接書く）
+    b.eval("""(() => {
+        const i = document.getElementById('name'); i.value = 'ja\\u200Bck\\u2060\\u3164\\u202E'; i.dispatchEvent(new Event('input'))
+        localStorage.setItem('pot-call-card', JSON.stringify({ bio: 'he\\u200Bllo\\u2028\\uFEFF\\u00AD👨\\u200D👩\\u200D👧' }))
+    })()""")
+    r.join(a, name); r.join(b, name)
+    joined = a.wait_for('%s === 2' % MEMBERS, timeout=DISCOVER) and b.wait_for('%s === 2' % MEMBERS, timeout=DISCOVER)
+    shown_name = a.eval("[...document.querySelectorAll('#members .member')].filter(el => !el.querySelector('.you')).map(el => el.querySelector('.m-name').textContent).join('|')")
+    b.eval("(() => { document.getElementById('tabChat')?.click(); const t = document.getElementById('chatText'); t.value = 'sa\\u200Cfe\\u2066'; document.getElementById('chatSend').click() })()")
+    a.eval("document.getElementById('tabChat')?.click()")
+    a.wait_for("!!document.querySelector('#chatLog .cl-row.can .cl-text')", timeout=SHORT)
+    chat = a.eval("document.querySelector('#chatLog .cl-row.can .cl-text').textContent")
+    a.eval("document.querySelector('#chatLog .cl-row.can .cl-who').click()"); a.eval("document.querySelector('#chatLog .cl-row.pick .cl-who')?.click()")
+    a.wait_for("document.getElementById('cardDlg').open && document.getElementById('cdBio').textContent.length > 0", timeout=SHORT)
+    bio = a.eval("document.getElementById('cdBio').textContent")
+    a.eval("document.querySelectorAll('dialog[open]').forEach(d => d.close())")
+    fam = '\U0001F468\u200D\U0001F469\u200D\U0001F467'
+    ok = bool(joined and shown_name == 'jack' and chat == 'safe' and bio == 'hello' + fam)
+    r.check('T77', '見えない文字・向きを変える文字は、名前・ひとこと・名刺の bio で相手の画面から消える（絵文字の結合は残る）', ok, 'pass',
+            '参加=%s / 名前=%r / ひとこと=%r / bio=%r' % (bool(joined), shown_name, chat, bio))
+    b.eval("(() => { const i = document.getElementById('name'); i.value = ''; i.dispatchEvent(new Event('input')); localStorage.removeItem('pot-call-card') })()")
+    click_leave(a); click_leave(b)
+
+
 def T73(r):
     """プロフィールカード編集＆認証チャレンジUI（v0.16.0）：
     編集モーダル（#cardEditDlg）展開、SNS入力で認証ボタン出現、
@@ -3513,6 +3547,8 @@ def main():
             T75(r, room)
         if run('T76'):
             T76(r, room)
+        if run('T77'):
+            T77(r, room)
         if run('T27i'):
             T27i(r, room)
         if run('T27j'):
