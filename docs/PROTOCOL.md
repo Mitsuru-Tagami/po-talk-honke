@@ -376,6 +376,7 @@ interface Roster {
     github?: string,                  // /^[a-zA-Z0-9-]{1,39}$/
     note?: string,                    // /^[a-zA-Z0-9_]{3,32}$/
     instagram?: string,               // /^[a-zA-Z0-9._]{1,30}$/
+    youtube?: string,                 // '@ハンドル'（/^@[\p{L}\p{N}\p{M}._\-\u00B7]{3,30}$/u・日本語可）か 'UC…'（/^UC[A-Za-z0-9_-]{22}$/）
     nostr?: string                    // /^npub1[0-9a-z]{58}$/
   },
   tip?: { p: 'ofuse' | 'amazon' | 'zap' | 'kofi' | 'bmac', id: string },   // お礼の窓口（1 つ）
@@ -400,6 +401,7 @@ interface Roster {
   | `socials.github` | `https://github.com/<id>` |
   | `socials.note` | `https://note.com/<id>` |
   | `socials.instagram` | `https://www.instagram.com/<id>/` |
+  | `socials.youtube` | `@` で始まれば `https://www.youtube.com/@<encodeURIComponent(@ の後ろ)>`、`UC` で始まれば `https://www.youtube.com/channel/<id>`（いまは自己申告だけ・✅ の照合は未定義） |
   | `socials.nostr` | `https://njump.me/<npub>` |
   | `tip` `ofuse` | `https://ofuse.me/<id>`（`/^[a-zA-Z0-9_]{1,30}$/`。入力欄は `ofuse.me/users/<id>` の形の URL も受けて ID に切り詰める） |
   | `tip` `amazon` | `https://www.amazon.co.jp/hz/wishlist/ls/<id>`（ほしい物リストの ID `/^[a-zA-Z0-9]{10,20}$/`。短縮 URL は送らない） |
@@ -408,7 +410,7 @@ interface Roster {
   | `tip` `bmac` | `https://buymeacoffee.com/<id>` |
 - ID が上の形に合わないもの、知らない種類は、黙って捨てます（§8）。
 - 外部リンクは `target="_blank" rel="noopener noreferrer nofollow"` で開きます。
-- **v1.0 の草稿からの変更**：`kampa` を外しました。`instagram`・`amazon`・`ck`・`pr`・`q`/`a` を足しました。
+- **v1.0 の草稿からの変更**：`kampa` を外しました。`instagram`・`youtube`・`amazon`・`ck`・`pr`・`q`/`a` を足しました。
 - **旧形式の `verified`**：β の v0.16.0 は `verified: {x: true, …}`（「認証済み」の自己申告）を送っていました。受け手はこれを**主張としてだけ**受け取り、✅ は付けず「要確認」と示します。いまの実装は送りません。
 
 ### 11.2 アイコン画像（`avatar`）
@@ -458,6 +460,7 @@ interface Roster {
 
 | 日付 | 本体の版 | 状態 | 変更 | 互換クライアントへの影響 |
 | :--- | :--- | :--- | :--- | :--- |
+| 2026-10-11 | v0.16.7 | β | §11 `socials.youtube` を追加（自己申告だけ） | 任意（知らないキーは捨てられる） |
 | 2026-10-11 | v0.16.3 | β | §7 受け取った文字から**見えない文字**も取り除く | 推奨（表示の偽装を防ぐ）。通信の形は変わらない |
 | 2026-10-11 | v0.16.1 | β | §11 **`card`（名刺）を確定**（`ck`・`pr`・`q`/`a`・受け手が確かめる本人確認）。§5.1 の action が 13 個に | 任意（知らない action は捨てられる）。告知：potalk-cli #26 |
 | 2026-10-10 | v0.15.28 | 本番 | §5.11 **`oath`（配信者の本人確認）**を追加 | **配信者になるクライアントは必須**（返さないと v0.15.28 以降の聞き役に声が届かない）。告知：potalk-cli #20 |

@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ぽっと通話〈実験版〉 v0.16.6
+  ぽっと通話〈実験版〉 v0.16.7
   同じ部屋名を開いた人どうしが、ブラウザだけで声でつながるミニ通話アプリ。
   サーバは持たない（相手発見＝公開Nostrリレー／音声＝WebRTC・Cloudflare TURN経由）。
   ビルドもパッケージも無く、この1ファイルで完結する。GitHub Pages で配信。
@@ -1561,6 +1561,11 @@
     <span class="ce-un-badge" title="自己申告リンク">自己申告</span>
   </div>
   <div class="ce-row">
+    <span class="ce-name">▶️ YouTube</span>
+    <input type="text" id="ceSns_youtube" placeholder="URL または @ハンドル" autocomplete="off" maxlength="400">
+    <span class="ce-un-badge" title="自己申告リンク">自己申告</span>
+  </div>
+  <div class="ce-row">
     <span class="ce-name">🟣 Nostr</span>
     <input type="text" id="ceSns_nostr" placeholder="URL または npub1..." autocomplete="off" maxlength="100">
     <button class="ce-ver-btn" id="ceBtnVer_nostr" type="button" title="拡張機能で本人確認">認証</button>
@@ -1689,7 +1694,7 @@ window.__potPending = () => { try { return pendingPeers().map(p => p.name || p.i
 // ───────────────────────────────────────────────────────────────────────────
 // 版。**ここが唯一の定義**（画面表示もここから入れる）。ファイル冒頭のコメントにも同じ番号が
 // 書いてあるので、上げるときは両方直すこと（食い違いは test/smoke.py の T15 が検出する）。
-const APP_VERSION = 'v0.16.6'
+const APP_VERSION = 'v0.16.7'
 
 const $ = id => document.getElementById(id)
 // localStorage は**必ずここを通す**。Safari のプライベートモードやストレージ拒否の環境では
@@ -2560,6 +2565,26 @@ const SNS_DEFS = {
     },
     url: id => 'https://www.instagram.com/' + id + '/'
   },
+  // YouTube（v0.16.7・まずは自己申告だけ。✅ の道は HANDOFF のメモ）。ID は `@ハンドル` か `UC…`（24 字のチャンネル ID）。
+  // ★ハンドルは 2023 年から日本語などの文字も使える＝英数字だけにしない（文字・数字・結合文字と . _ - ·）。
+  //   見えない文字・向きを変える文字は文字種に含まれないので、ここで自然に弾かれる。
+  //   旧形式の /c/名前・/user/名前 は名前からチャンネルを特定できないので受けない（@ハンドルの URL を貼ってもらう）
+  youtube: {
+    name: 'YouTube', re: /^(?:@[\p{L}\p{N}\p{M}._\-\u00B7]{3,30}|UC[A-Za-z0-9_-]{22})$/u,
+    parse: s => {
+      s = s.trim()
+      let m = s.match(/(?:https?:\/\/)?(?:www\.|m\.)?youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})(?:[/?#]|$)/i)
+      if (m) return m[1]
+      m = s.match(/(?:https?:\/\/)?(?:www\.|m\.)?youtube\.com\/(@[^/?#\s]+)/i)
+      if (m) { let h = m[1]; try { h = decodeURIComponent(h) } catch {}; return /^@[\p{L}\p{N}\p{M}._\-\u00B7]{3,30}$/u.test(h) ? h : null }
+      if (/^UC[A-Za-z0-9_-]{22}$/.test(s)) return s
+      if (/youtube\.com|youtu\.be/i.test(s)) return null   // /c/・/user/・動画の URL など
+      const h = s.startsWith('@') ? s : '@' + s
+      return /^@[\p{L}\p{N}\p{M}._\-\u00B7]{3,30}$/u.test(h) ? h : null
+    },
+    hint: s => /youtube\.com\/(?:c|user)\//i.test(s) || /youtu\.be\/|youtube\.com\/(?:watch|shorts)/i.test(s) ? 'YouTube はチャンネルの「@ハンドル」の URL（youtube.com/@…）を貼ってください' : '',
+    url: id => 'https://www.youtube.com/' + (id.startsWith('@') ? '@' + encodeURIComponent(id.slice(1)) : 'channel/' + id)
+  },
   nostr: {
     name: 'Nostr', re: /^npub1[0-9a-z]{58}$/,
     parse: s => {
@@ -3138,7 +3163,7 @@ const openCardEdit = () => {
   $('ceTip_bmac').value = tip.p === 'bmac' ? (tip.id || '') : (c.savedTips?.bmac || '')
 
   const soc = c.socials || {}
-  for (const k of ['x', 'github', 'note', 'instagram', 'nostr']) {
+  for (const k of ['x', 'github', 'note', 'instagram', 'youtube', 'nostr']) {
     const el = $('ceSns_' + k)
     if (el) el.value = soc[k] || ''
   }
@@ -3176,6 +3201,9 @@ for (const [k, def] of Object.entries(SNS_DEFS)) {
   if (!el) continue
   const onUpdate = () => {
     handleAutoTrim(el, def)
+    const h = def.hint?.(el.value) || ''
+    if (h) { $('ceWarn').textContent = '⚠️ ' + h; $('ceWarn').hidden = false }
+    else if ($('ceWarn').textContent.includes('@ハンドル')) { $('ceWarn').hidden = true; $('ceWarn').textContent = '' }
     syncVerUi()
   }
   el.oninput = onUpdate
@@ -3410,7 +3438,7 @@ $('ceSave').onclick = () => {
     const parsed = def.parse(raw)
     if (!parsed || !def.re.test(parsed)) {
       if (el) el.classList.add('is-bad')
-      $('ceWarn').textContent = '⚠️ ' + def.name + ' のURLまたはIDの形式が正しくありません'
+      $('ceWarn').textContent = '⚠️ ' + (def.hint?.(raw) || def.name + ' のURLまたはIDの形式が正しくありません')
       $('ceWarn').hidden = false
       el?.focus()
       return

@@ -2406,6 +2406,8 @@ def T77(r, room):
     })()""")
     r.join(b, name)
     joined = a.wait_for('%s === 2' % MEMBERS, timeout=DISCOVER) and b.wait_for('%s === 2' % MEMBERS, timeout=DISCOVER)
+    # 行は相手のプロフィールが届く前から「ゲスト」で出るので、名前が届くのを待ってから読む
+    a.wait_for("[...document.querySelectorAll('#members .member')].some(el => !el.querySelector('.you') && el.querySelector('.m-name').textContent !== 'ゲスト')", timeout=SHORT)
     shown_name = a.eval("[...document.querySelectorAll('#members .member')].filter(el => !el.querySelector('.you')).map(el => el.querySelector('.m-name').textContent).join('|')")
     b.eval("(() => { document.getElementById('tabChat')?.click(); const t = document.getElementById('chatText'); t.value = 'sa\\u200Cfe\\u2066'; document.getElementById('chatSend').click() })()")
     a.eval("document.getElementById('tabChat')?.click()")
@@ -2529,6 +2531,47 @@ def T80(r, room):
     ok = bool(joined and inside_kept and drag_kept and closed and reopen)
     r.check('T80', '名刺の窓：外をタップで閉じる・中のタップや中から外へのドラッグでは閉じない', ok, 'pass',
             '参加=%s / 中で閉じない=%s / ドラッグで閉じない=%s / 外で閉じる=%s / 開き直せる=%s' % (bool(joined), inside_kept, drag_kept, bool(closed), bool(reopen)))
+    click_leave(a)
+
+
+def T81(r, room):
+    """名刺の SNS に YouTube（v0.16.7・まずは自己申告）：URL を @ハンドルか UC… に切り詰め、旧形式は案内、名刺では「未認証」
+
+    ハンドルは日本語も使える（URL では %E3… に符号化されている）。/c/ と /user/ は名前からチャンネルを特定できないので受けない。
+    """
+    a = r.open_tab()
+    a.eval("localStorage.setItem('pot-call-hide-help','1'); localStorage.removeItem('pot-call-card'); document.querySelectorAll('dialog[open]').forEach(d => d.close())")
+    a.eval("document.getElementById('btnOpenCardEdit').click()")
+    a.wait_for("document.getElementById('cardEditDlg').open", timeout=SHORT)
+    TRIM = """(v => { const i = document.getElementById('ceSns_youtube'); i.value = v; i.dispatchEvent(new Event('input'))
+        return [i.value, i.classList.contains('is-bad'), document.getElementById('ceWarn').hidden ? '' : document.getElementById('ceWarn').textContent] })(%s)"""
+    cases = {
+        'https://www.youtube.com/@potalk_app/videos': ('@potalk_app', False),
+        'https://m.youtube.com/@%E3%81%BD%E3%81%A3%E3%81%A8%E9%80%9A%E8%A9%B1': ('@ぽっと通話', False),
+        'https://youtube.com/channel/UCuAXFkgsw1L7xaCfnd5JJOw': ('UCuAXFkgsw1L7xaCfnd5JJOw', False),
+        'ぽっと通話': ('@ぽっと通話', False),
+        'https://www.youtube.com/c/OldName': (None, True),
+        'ja\u200Bck': (None, True),
+    }
+    got = {}
+    for v, (want, bad) in cases.items():
+        val, is_bad, warn = a.eval(TRIM % json.dumps(v))
+        got[v] = (val, is_bad, warn[:60])
+    ok_trim = all((got[v][0] == want if want else True) and got[v][1] == bad for v, (want, bad) in cases.items())
+    old_hint = '@ハンドル' in got['https://www.youtube.com/c/OldName'][2]
+    a.eval(TRIM % json.dumps('https://www.youtube.com/@%E3%81%BD%E3%81%A3%E3%81%A8%E9%80%9A%E8%A9%B1'))
+    a.eval("document.getElementById('ceSave').click()")
+    saved = a.wait_for("!document.getElementById('cardEditDlg').open", timeout=SHORT)
+    r.join(a, room + 'YT')
+    a.wait_for("!document.getElementById('tabs').hidden", timeout=DISCOVER)
+    a.eval("(() => { const row = [...document.querySelectorAll('#members .member')].find(el => el.querySelector('.you')); row.querySelector('.m-tap').click() })()")
+    a.wait_for("document.getElementById('cardDlg').open", timeout=SHORT)
+    chip = a.eval("(() => { const c = [...document.querySelectorAll('#cdSocials .cd-sns')].find(e => e.textContent.includes('YouTube')); return c ? c.textContent + ' ' + c.getAttribute('href') : '' })()")
+    ok_chip = '@ぽっと通話' in chip and '未認証' in chip and 'https://www.youtube.com/@%E3%81%BD%E3%81%A3%E3%81%A8%E9%80%9A%E8%A9%B1' in chip
+    a.eval("document.querySelectorAll('dialog[open]').forEach(d => d.close()); localStorage.removeItem('pot-call-card')")
+    ok = bool(ok_trim and old_hint and saved and ok_chip)
+    r.check('T81', '名刺の YouTube：URL を @ハンドル／UC… に切り詰め（日本語ハンドル可）・旧形式は案内・名刺では未認証', ok, 'pass',
+            '切り詰め=%s %r / 旧形式の案内=%s / 保存=%s / 名刺=%r' % (ok_trim, got, old_hint, bool(saved), chip))
     click_leave(a)
 
 
@@ -3682,6 +3725,8 @@ def main():
             T79(r, room)
         if run('T80'):
             T80(r, room)
+        if run('T81'):
+            T81(r, room)
         if run('T27i'):
             T27i(r, room)
         if run('T27j'):
