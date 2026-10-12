@@ -2704,11 +2704,14 @@ def T84(r, room):
     rows = json.loads(st)
     loud_n = sum(1 for x in rows if x['loud']); normal = [x for x in rows if not x['loud']]
     notice = a.eval("document.getElementById('peerNotice').textContent")
+    # 知らせが画面の上で見えていること（文字が入っただけでなく）・抑えている相手の行に 🔉
+    visible = a.eval("(() => { const n = document.getElementById('peerNotice'); return !n.hidden && !!n.offsetParent && n.getBoundingClientRect().height > 0 })()")
+    badge = a.eval("[...document.querySelectorAll('#members .member')].filter(el => el.querySelector('.m-loud')).length")
     # 素の再生（<audio>）は、抑えた相手のぶんだけ止まり、ふつうの相手は鳴ったまま
     els = json.loads(a.eval("JSON.stringify([...document.querySelectorAll('audio:not(#appAudio)')].filter(e => e.srcObject).map(e => e.muted))"))
-    ok = bool(joined and caught and loud_n == 1 and len(normal) == 1 and normal[0]['via'] == '' and '自動で小さくしました' in notice and sorted(els) == [False, True])
+    ok = bool(joined and caught and loud_n == 1 and len(normal) == 1 and normal[0]['via'] == '' and '自動で小さくしました' in notice and sorted(els) == [False, True] and visible and badge == 1)
     r.check('T84', '大音量の相手だけをリミッターに通して知らせる・ふつうの相手は素の再生のまま', ok, 'pass',
-            '3人=%s / 検知=%s / 状態=%s / 素の再生の muted=%s / 知らせ=%r' % (bool(joined), bool(caught), st, els, notice[:40]))
+            '3人=%s / 検知=%s / 状態=%s / 素の再生の muted=%s / 知らせ=%r 見える=%s / 🔉の行=%s' % (bool(joined), bool(caught), st, els, notice[:40], visible, badge))
     for t in (a, b, c):
         click_leave(t)
 

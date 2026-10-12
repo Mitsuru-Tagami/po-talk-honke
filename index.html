@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ぽっと通話〈実験版〉 v0.16.12
+  ぽっと通話〈実験版〉 v0.16.13
   同じ部屋名を開いた人どうしが、ブラウザだけで声でつながるミニ通話アプリ。
   サーバは持たない（相手発見＝公開Nostrリレー／音声＝WebRTC・Cloudflare TURN経由）。
   ビルドもパッケージも無く、この1ファイルで完結する。GitHub Pages で配信。
@@ -324,6 +324,7 @@
   /* メンバー行のタップ可能装飾 */
   .member .m-tap{ cursor:pointer; text-decoration:underline dotted var(--border-faint); text-underline-offset:3px }
   .member .m-tap:hover{ color:var(--link) }
+  .member .m-loud{ margin-left:4px; font-size:13px; flex:none }
   /* 共有アクション：コピーとQRを横並び */
   .share-actions{ display:flex; gap:8px }
   .share-actions button{ flex:1; width:auto }
@@ -1717,7 +1718,7 @@ window.__potPending = () => { try { return pendingPeers().map(p => p.name || p.i
 // ───────────────────────────────────────────────────────────────────────────
 // 版。**ここが唯一の定義**（画面表示もここから入れる）。ファイル冒頭のコメントにも同じ番号が
 // 書いてあるので、上げるときは両方直すこと（食い違いは test/smoke.py の T15 が検出する）。
-const APP_VERSION = 'v0.16.12'
+const APP_VERSION = 'v0.16.13'
 
 const $ = id => document.getElementById(id)
 // localStorage は**必ずここを通す**。Safari のプライベートモードやストレージ拒否の環境では
@@ -3981,6 +3982,12 @@ const renderMembers = () => {
       ? { off: true, title: 'この人の音をまた受け取る', onClick: () => unignorePeer(id) }
       : { off: false, title: 'この人の音を受け取らない（無視。相手には伝わりません）', onClick: () => ignorePeer(id) }, bc)
     if (ig) row.classList.add('ignored')
+    // 大音量を自動で抑えている相手（v0.16.13）：知らせ（20 秒で消える）を見逃しても、いつでも分かるように名前の横に 🔉
+    if (call.loud.has(id)) {
+      const m = document.createElement('span'); m.className = 'm-loud'; m.textContent = '🔉'
+      m.title = '音がとても大きいので、自動で小さくしています'; m.setAttribute('aria-label', m.title)
+      row.querySelector('.m-id')?.append(m)
+    }
     if (ownerOk(id)) ownerRow = row
   })
   // 読み上げの仮想メンバー 🗣「つくよみちゃん」（v0.14.44）。人ではないので人数に数えず、名簿の印も付けない。
@@ -4226,7 +4233,7 @@ const onLoudPeer = uid => {
   call.loud.set(uid, Date.now()); call.loudHits.delete(uid)
   routePeer(uid)
   const name = uid === 'tts' ? '読み上げ' : ((call.profiles.get(uid) || {}).name || 'ゲスト') + ' さん'
-  showPeerNotice('🔉 ' + name + 'の音がとても大きいので、自動で小さくしました。続くようなら、その人の ❤️ から「無視」もできます')
+  showPeerNotice('🔉 ' + name + 'の音がとても大きいので、自動で小さくしました（名前の横に 🔉）。続くようなら、その人の ❤️ から「無視」もできます', 20000)
   renderMembers()
 }
 const startLoudWatch = () => { if (!loudTimer) loudTimer = setInterval(loudTick, LOUD_TICK_MS) }
@@ -6328,11 +6335,11 @@ chatText.addEventListener('keydown', e => {
 // 「退出した」のか「接続が切れた」のかを書き分ける。
 // 退出は**出ていく側が 'bye' を送ってから抜ける**ので、来ていれば正規の退出。来ないまま消えたら異常。
 // 本物の回線障害でも出るが、それも含めて「何かおかしい」と分かるほうがよい。
-const showPeerNotice = text => {
+const showPeerNotice = (text, ms = 12000) => {
   const el = $('peerNotice')
   el.hidden = !text; el.textContent = text
   clearTimeout(call.noticeTimer)
-  if (text) call.noticeTimer = setTimeout(() => { $('peerNotice').hidden = true }, 12000)
+  if (text) call.noticeTimer = setTimeout(() => { $('peerNotice').hidden = true }, ms)
 }
 
 // ───────── 配信部屋（誰の音を鳴らすかを、署名で決める） ─────────
