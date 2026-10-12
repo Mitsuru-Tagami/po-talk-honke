@@ -2713,6 +2713,34 @@ def T84(r, room):
         click_leave(t)
 
 
+def T85(r, room):
+    """β 限定の大音量テスト（?loudtest=1・v0.16.12）と、見張りの数値
+
+    B を ?loudtest=1 で開くと、マイクの代わりに最大振幅の矩形波（2 秒鳴らして 3 秒休む）を送る。版の表示に 🧪。
+    A では B が抑えられ（via='limit'）、届いた音の最大（rms）が記録され、診断の窓（版の長押し）に「届いた音の最大」が出る。
+    """
+    name = room + 'LT'
+    b = r.open_tab(hash_='?loudtest=1')
+    a = r.open_tab()
+    for t in (a, b):
+        t.eval("localStorage.setItem('pot-call-hide-help','1'); document.querySelectorAll('dialog[open]').forEach(d => d.close())")
+    badge = '🧪' in b.eval("document.getElementById('ver').textContent")
+    r.join(b, name)
+    b.wait_for("!document.getElementById('tabs').hidden", timeout=DISCOVER)
+    r.join(a, name)
+    joined = a.wait_for('%s === 2' % MEMBERS, timeout=DISCOVER)
+    caught = a.wait_for("window.__potLoud().some(x => x.loud && x.via === 'limit')", timeout=20)
+    lv = json.loads(a.eval("JSON.stringify(window.__potLoud())"))
+    rms = max([x['rms'] for x in lv] or [0])
+    a.eval("document.getElementById('ver').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 1, clientY: 1 }))")
+    shown = a.wait_for("!document.getElementById('diag').hidden && document.getElementById('diag').textContent.includes('届いた音の最大')", timeout=8)
+    diag = a.eval("document.getElementById('diag').textContent")
+    ok = bool(badge and joined and caught and rms >= 0.5 and shown)
+    r.check('T85', 'β の ?loudtest=1 で大きな音を送ると受け手が抑える・届いた音の最大が診断の窓に出る', ok, 'pass',
+            '🧪=%s / 2人=%s / 抑えた=%s / 最大rms=%.2f / 診断=%r' % (badge, bool(joined), bool(caught), rms, diag[-90:] if shown else ''))
+    click_leave(a); click_leave(b)
+
+
 def T73(r):
     """プロフィールカード編集＆認証チャレンジUI（v0.16.0）：
     編集モーダル（#cardEditDlg）展開、SNS入力で認証ボタン出現、
@@ -3871,6 +3899,8 @@ def main():
             T83(r, room)
         if run('T84'):
             T84(r, room)
+        if run('T85'):
+            T85(r, room)
         if run('T27i'):
             T27i(r, room)
         if run('T27j'):

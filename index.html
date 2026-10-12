@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ぽっと通話〈実験版〉 v0.16.11
+  ぽっと通話〈実験版〉 v0.16.12
   同じ部屋名を開いた人どうしが、ブラウザだけで声でつながるミニ通話アプリ。
   サーバは持たない（相手発見＝公開Nostrリレー／音声＝WebRTC・Cloudflare TURN経由）。
   ビルドもパッケージも無く、この1ファイルで完結する。GitHub Pages で配信。
@@ -1717,7 +1717,7 @@ window.__potPending = () => { try { return pendingPeers().map(p => p.name || p.i
 // ───────────────────────────────────────────────────────────────────────────
 // 版。**ここが唯一の定義**（画面表示もここから入れる）。ファイル冒頭のコメントにも同じ番号が
 // 書いてあるので、上げるときは両方直すこと（食い違いは test/smoke.py の T15 が検出する）。
-const APP_VERSION = 'v0.16.11'
+const APP_VERSION = 'v0.16.12'
 
 const $ = id => document.getElementById(id)
 // localStorage は**必ずここを通す**。Safari のプライベートモードやストレージ拒否の環境では
@@ -1863,6 +1863,7 @@ const CALL_INIT = () => ({
   cardViewing: null,    // いま名刺ダイアログで見ている peerId（更新時の描画用）
   loud: new Map(),      // peerId → 大音量を検知した時刻（v0.16.11・このセッションの間はリミッターを通したまま）
   loudHits: new Map(),  // peerId → 大音量の続き具合（見張りのカウンタ）
+  loudLvl: new Map(),   // peerId → {rms, clip} 届いた音の最近の最大（v0.16.12・診断の窓としきい値の見直し用。ゆっくり下がる）
   cardVer: new Map(),   // peerId → 受け手が確かめた結果（v0.16.1・通話セッションの間だけ）
   cardAsk: new Map(),   // peerId → 名刺の鍵への問い返し（{n, answer}）
   cardAskAt: new Map(), // peerId → 最後に問い返しへ署名した時刻（連打で署名を走らされないよう間引く）
@@ -1879,7 +1880,7 @@ const call = Object.seal({
 // 値を初期状態へ戻す。**タイマーの停止やトラックの停止は代替できない**ので、
 // 呼ぶ側が先に副作用を済ませてから使うこと（leaveCall の①→②の順）。
 const resetCall = () => Object.assign(call, CALL_INIT())
-$('ver').textContent = APP_VERSION
+$('ver').textContent = APP_VERSION + (/[?&]loudtest=1(&|$)/.test(location.search) && location.hostname !== 'potalk.app' ? ' 🧪大音量テスト' : '')
 // 本番（potalk.app）以外では版の横に β を出す。旧URL `qramo.github.io/po_call/` を
 // **ベータ配布路**として使うため（2026-08-14 の方針転換。HANDOFF「旧サイト」の項参照）。
 // 狙いは「スクリーンショット1枚でどちらのビルドか分かる」こと。同じ日に常駐クライアントで
@@ -4205,12 +4206,17 @@ let loudTimer = null
 const loudTick = () => {
   if (!call.joinedId) return
   analysers.forEach(({ analyser, data }, uid) => {
-    if (uid === 'self' || call.loud.has(uid)) return
+    if (uid === 'self') return
     if (uid !== 'tts' && !canHear(uid)) return   // 聞こえない相手（無視中・配信部屋の名簿外）は鳴っていないので見ない
     analyser.getByteTimeDomainData(data)
     let sum = 0, clip = 0
     for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; if (data[i] <= 2 || data[i] >= 253) clip++ }
-    const hit = Math.sqrt(sum / data.length) >= LOUD_RMS || clip / data.length >= LOUD_CLIP
+    const rms = Math.sqrt(sum / data.length), cf = clip / data.length
+    // 最近の最大（診断の窓用）。0.1 秒ごとに 2% ずつ下がる＝約 3.5 秒で半分
+    const L = call.loudLvl.get(uid) || { rms: 0, clip: 0 }
+    L.rms = Math.max(rms, L.rms * 0.98); L.clip = Math.max(cf, L.clip * 0.98); call.loudLvl.set(uid, L)
+    if (call.loud.has(uid)) return
+    const hit = rms >= LOUD_RMS || cf >= LOUD_CLIP
     const n = Math.max(0, (call.loudHits.get(uid) || 0) + (hit ? 1 : -1))
     call.loudHits.set(uid, n)
     if (n >= LOUD_HITS) onLoudPeer(uid)
@@ -4225,7 +4231,26 @@ const onLoudPeer = uid => {
 }
 const startLoudWatch = () => { if (!loudTimer) loudTimer = setInterval(loudTick, LOUD_TICK_MS) }
 const stopLoudWatch = () => { if (loudTimer) { clearInterval(loudTimer); loudTimer = null } }
-window.__potLoud = () => { try { return [...analysers].filter(([u]) => u !== 'self').map(([u, a]) => ({ id: u, loud: call.loud.has(u), via: a.via || '' })) } catch { return [] } }   // 診断・テスト用
+window.__potLoud = () => { try { return [...analysers].filter(([u]) => u !== 'self').map(([u, a]) => { const L = call.loudLvl.get(u) || {}; return { id: u, loud: call.loud.has(u), via: a.via || '', rms: +(L.rms || 0).toFixed(3), clip: +(L.clip || 0).toFixed(3) } }) } catch { return [] } }   // 診断・テスト用
+// 診断の窓の 1 行：相手ごとの届いた音の最近の最大（RMS と音割れ）。🔉 は抑えている相手
+const loudDiag = () => [...call.loudLvl].map(([u, L]) => ((u === 'tts' ? '読上' : ((call.profiles.get(u) || {}).name || u.slice(0, 4)).slice(0, 4)) + (call.loud.has(u) ? '🔉' : '') + ':' + L.rms.toFixed(2) + (L.clip >= 0.01 ? '/割' + Math.round(L.clip * 100) + '%' : ''))).join(' ')
+// ── β 限定の大音量テスト（v0.16.12）──
+// URL に ?loudtest=1 を付けて開くと、マイクの代わりに最大振幅の矩形波（2 秒鳴らして 3 秒休む）を送る。
+// 受け手の見張り（実機の iPhone・Android）が働くかを確かめるためのもの。**本番（potalk.app）では効かない**
+// （いたずらの手間を下げないため。改造クライアントなら同じことができるので、受け手の見張りが本当の守り）
+const LOUD_TEST = location.hostname !== 'potalk.app' && /[?&]loudtest=1(&|$)/.test(location.search)
+let loudTestCtx = null
+const getMic = () => {
+  if (!LOUD_TEST) return navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS)
+  loudTestCtx ??= new (window.AudioContext || window.webkitAudioContext)()
+  loudTestCtx.resume().catch(() => {})
+  const o = loudTestCtx.createOscillator(); o.type = 'square'; o.frequency.value = 440
+  const g = loudTestCtx.createGain(); g.gain.value = 0
+  const t0 = loudTestCtx.currentTime
+  for (let i = 0; i < 720; i++) { g.gain.setValueAtTime(1, t0 + i * 5 + 0.5); g.gain.setValueAtTime(0, t0 + i * 5 + 2.5) }   // 1 時間ぶん
+  const d = loudTestCtx.createMediaStreamDestination(); o.connect(g); g.connect(d); o.start()
+  return Promise.resolve(d.stream)
+}
 const applyVolume = () => {
   if (masterGain) masterGain.gain.value = masterVol
   if (bgm) bgm.gain.gain.value = bgmLevel()   // BGM も「アプリの音」の一部として一緒に上下する
@@ -6604,7 +6629,7 @@ const startSpeaking = async () => {
   if (call.stream || !call.joinedId || !call.room) return
   $('speak').disabled = true
   try {
-    call.stream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS)
+    call.stream = await getMic()
   } catch (e) {
     showPeerNotice('🎙 ' + micErrText(e))
     return
@@ -7249,7 +7274,7 @@ const wireRoom = () => {
     call.nudges.delete(id); call.nudgeSeen.delete(id); call.byeSeen.delete(id); call.requests.delete(id)
     call.ignored.delete(id)   // peerId は使い捨て。入り直すと別人なので、無視も持ち越さない
     call.cardCache.delete(id); call.cardReqSeen.delete(id); call.cardVer.delete(id); call.cardAsk.delete(id); call.cardAskAt.delete(id)
-    call.loud.delete(id); call.loudHits.delete(id)
+    call.loud.delete(id); call.loudHits.delete(id); call.loudLvl.delete(id)
     if (call.cardViewing === id) { call.cardViewing = null; try { $('cardDlg').close() } catch {} }
     call.ttsSent.delete(id); call.ttsSentStream.delete(id); call.ttsResentAt.delete(id)   // 読み上げを配った記録（入り直せば別 ID＝改めて {ok} を待つ）
     if (id === call.ownerPeer && call.ttsAnn) { call.ttsAnn = null; call.ttsTrackIds.clear(); dropAudios('tts'); removeAnalyser('tts') }   // 配信者が抜けた＝仮想行も畳む
@@ -7290,7 +7315,9 @@ const diagAudio = () => {
       'tts=' + (!ttsOk ? 'なし' : ttsEngine ? 'ready' : ttsLoading ? 'loading' : 'none') + (sndTts ? ' on' : ' off') + ' q' + ttsQueue.length + (ttsSpeaking ? ' spk' : '') + (ttsLast ? ' ' + ttsLast : '') + (ttsProg ? ' [' + ttsProg + ']' : '') + ' crash' + ttsCrashes() + ' oom' + ttsOoms()
         + (call.ownerKey ? ' sent' + call.ttsSent.size : ' ann:' + (call.ttsAnn ? (call.ttsAnn.on ? 'on' : 'off') + (call.ttsAnn.from === call.ownerPeer ? '/owner' : '/other') : 'none') + ' ack:' + (call.ttsAckedFrom ? 'y' : 'n') + ' ttsEl' + (call.audios.get('tts') || []).length + (ttsFlowing() ? ' flow' : '')),
       navigator.audioSession ? 'as=' + navigator.audioSession.type + '/' + navigator.audioSession.state : '',
-      diagSince ? '参加' + Math.round((Date.now() - diagSince) / 1000) + 's' : '未参加'
+      diagSince ? '参加' + Math.round((Date.now() - diagSince) / 1000) + 's' : '未参加',
+      call.loudLvl.size ? '届いた音の最大 ' + loudDiag() + '（抑える目安 ' + LOUD_RMS + '・割' + Math.round(LOUD_CLIP * 100) + '%）' : '',
+      LOUD_TEST ? '🧪大音量テスト中' : ''
     ]
     $('diag').textContent = '🔬 ' + parts.filter(Boolean).join(' / ')
   } catch (err) { $('diag').textContent = '🔬 診断でエラー: ' + err.message }
@@ -7418,7 +7445,7 @@ const runJoin = async () => {
   if (wantMic) {
     setState('マイクを準備しています…（「許可」を押してください）', 'busy')
     try {
-      call.stream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS)
+      call.stream = await getMic()
       // 参加が成立する前に効かせる。こうすると相手へ最初に配るプロフィールも、ロビーの
       // ハートビートも、最初からミュートとして出る（あとから切り替えるとズレる瞬間ができる）。
       if (muteOnJoin) { call.muted = true; call.stream.getAudioTracks().forEach(t => t.enabled = false); renderMute() }
