@@ -2675,6 +2675,44 @@ def T83(r, room):
     click_leave(a); click_leave(b)
 
 
+def T84(r, room):
+    """大音量の相手だけを自動で抑える（v0.16.11・脅威モデル B8）
+
+    B のマイクを最大振幅の矩形波に差し替えて入る（改造クライアントの爆音の代わり）。C はテスト用の標準のマイク音。
+    見ている A では：B だけがリミッターの経路（via='limit'）に移り「自動で小さくしました」の知らせが出る／C は素の再生のまま（via=''）。
+    ★B は最初に入る（あとから入るタブはリンクで読み込み直すので、差し替えが消える）。
+    """
+    name = room + 'LOUD'
+    a, b, c = r.open_tab(), r.open_tab(), r.open_tab()
+    for t in (a, b, c):
+        t.eval("localStorage.setItem('pot-call-hide-help','1'); document.querySelectorAll('dialog[open]').forEach(d => d.close())")
+    b.eval("""(() => { navigator.mediaDevices.getUserMedia = async () => {
+        const ctx = new AudioContext(); await ctx.resume().catch(() => {})
+        const o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = 440
+        const d = ctx.createMediaStreamDestination(); o.connect(d); o.start(); window.__loudCtx = ctx
+        return d.stream } })()""")
+    r.join(b, name)
+    b.wait_for("!document.getElementById('tabs').hidden", timeout=DISCOVER)
+    r.join(a, name); r.join(c, name)
+    joined = a.wait_for('%s === 3' % MEMBERS, timeout=DISCOVER)
+    # B と C の声が A に届いて解析に載るまで待つ
+    a.wait_for("window.__potLoud().length === 2", timeout=DISCOVER)
+    b_id = b.eval("window.__potSelfId ? window.__potSelfId() : ''")
+    caught = a.wait_for("window.__potLoud().some(x => x.loud && x.via === 'limit')", timeout=20)
+    time.sleep(6)   # ふつうの相手が誤って抑えられないかを、しばらく見る
+    st = a.eval("JSON.stringify(window.__potLoud())")
+    rows = json.loads(st)
+    loud_n = sum(1 for x in rows if x['loud']); normal = [x for x in rows if not x['loud']]
+    notice = a.eval("document.getElementById('peerNotice').textContent")
+    # 素の再生（<audio>）は、抑えた相手のぶんだけ止まり、ふつうの相手は鳴ったまま
+    els = json.loads(a.eval("JSON.stringify([...document.querySelectorAll('audio:not(#appAudio)')].filter(e => e.srcObject).map(e => e.muted))"))
+    ok = bool(joined and caught and loud_n == 1 and len(normal) == 1 and normal[0]['via'] == '' and '自動で小さくしました' in notice and sorted(els) == [False, True])
+    r.check('T84', '大音量の相手だけをリミッターに通して知らせる・ふつうの相手は素の再生のまま', ok, 'pass',
+            '3人=%s / 検知=%s / 状態=%s / 素の再生の muted=%s / 知らせ=%r' % (bool(joined), bool(caught), st, els, notice[:40]))
+    for t in (a, b, c):
+        click_leave(t)
+
+
 def T73(r):
     """プロフィールカード編集＆認証チャレンジUI（v0.16.0）：
     編集モーダル（#cardEditDlg）展開、SNS入力で認証ボタン出現、
@@ -3831,6 +3869,8 @@ def main():
             T82(r, room)
         if run('T83'):
             T83(r, room)
+        if run('T84'):
+            T84(r, room)
         if run('T27i'):
             T27i(r, room)
         if run('T27j'):

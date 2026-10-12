@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ぽっと通話〈実験版〉 v0.16.10
+  ぽっと通話〈実験版〉 v0.16.11
   同じ部屋名を開いた人どうしが、ブラウザだけで声でつながるミニ通話アプリ。
   サーバは持たない（相手発見＝公開Nostrリレー／音声＝WebRTC・Cloudflare TURN経由）。
   ビルドもパッケージも無く、この1ファイルで完結する。GitHub Pages で配信。
@@ -1717,7 +1717,7 @@ window.__potPending = () => { try { return pendingPeers().map(p => p.name || p.i
 // ───────────────────────────────────────────────────────────────────────────
 // 版。**ここが唯一の定義**（画面表示もここから入れる）。ファイル冒頭のコメントにも同じ番号が
 // 書いてあるので、上げるときは両方直すこと（食い違いは test/smoke.py の T15 が検出する）。
-const APP_VERSION = 'v0.16.10'
+const APP_VERSION = 'v0.16.11'
 
 const $ = id => document.getElementById(id)
 // localStorage は**必ずここを通す**。Safari のプライベートモードやストレージ拒否の環境では
@@ -1861,6 +1861,8 @@ const CALL_INIT = () => ({
   cardCache: new Map(), // peerId → サニタイズ済み名刺データ
   cardReqSeen: new Map(), // peerId → 最後に名刺要求に応じた時刻（連打への自衛）
   cardViewing: null,    // いま名刺ダイアログで見ている peerId（更新時の描画用）
+  loud: new Map(),      // peerId → 大音量を検知した時刻（v0.16.11・このセッションの間はリミッターを通したまま）
+  loudHits: new Map(),  // peerId → 大音量の続き具合（見張りのカウンタ）
   cardVer: new Map(),   // peerId → 受け手が確かめた結果（v0.16.1・通話セッションの間だけ）
   cardAsk: new Map(),   // peerId → 名刺の鍵への問い返し（{n, answer}）
   cardAskAt: new Map(), // peerId → 最後に問い返しへ署名した時刻（連打で署名を走らされないよう間引く）
@@ -4157,20 +4159,73 @@ const routePeer = uid => {
   const a = analysers.get(uid)
   if (!a) return
   const els = call.audios.get(uid) || []
-  if (gainOn()) {
+  // 繋ぐ先：大音量を検知した相手＝リミッター（v0.16.11）／音量を 100% 以外にしている＝全体の音量／それ以外＝繋がない（素の再生）
+  const loud = call.loud.has(uid)
+  const want = loud ? 'limit' : gainOn() ? 'gain' : ''
+  if (a.via === want) return
+  if (want) {
     // ★AudioContext が止まったまま muted にすると**完全な無音**になる（画面は正常のまま）。
     // その間は素の再生のまま解錠ボタンを出し、押されたら applyVolume でやり直す。
     // muted な要素の play() は拒否されない＝ここで自分から出さないと誰も気づけない。
+    // ただし**大音量の相手は、経路を作れない間は止めておく**（耳を守るほうを優先・解錠されたら抑えた音で鳴る）
     const ctx = ensureAudioCtx()
-    if (ctx.state !== 'running') { showUnlock(); return }
-    if (!a.gain) { try { a.gain = ensureMasterGain(); a.src.connect(a.gain) } catch { a.gain = null } }
-    if (a.gain) els.forEach(el => { el.muted = true })
-  } else if (a.gain) {                       // 100% に戻した＝元の素朴な鳴らし方へ返す
-    try { a.src.disconnect(a.gain) } catch {}
-    a.gain = null
+    if (ctx.state !== 'running') { if (loud) els.forEach(el => { el.muted = true }); showUnlock(); return }
+    try {
+      if (a.into) { try { a.src.disconnect(a.into) } catch {} }
+      a.into = want === 'limit' ? loudChain(a) : ensureMasterGain()
+      a.src.connect(a.into); a.via = want
+      els.forEach(el => { el.muted = true })
+    } catch { a.into = null; a.via = '' }
+  } else {                                   // 100% に戻した＝元の素朴な鳴らし方へ返す
+    if (a.into) { try { a.src.disconnect(a.into) } catch {} }
+    a.into = null; a.via = ''
     els.forEach(el => { if (el.muted) { el.muted = false; play(el) } })
   }
 }
+// ── 大音量の見張り（v0.16.11・脅威モデル B8「爆音スクリーマー」）──
+// **見張りは常時、経路を変えるのは異常な相手だけ**：ふだんの声は今までどおり <audio> で素のまま鳴らす（iPhone の癖を
+// 背負い直さない）。最大音量に張り付いたノイズ・音割れが続いた相手だけ、音量を下げたときと同じ Web Audio の経路に移して
+// リミッター（DynamicsCompressor）を通す。抑えた相手はこのセッションの間そのまま（ふつうの声には効きの弱い設定）。
+// ★見張りは requestAnimationFrame（絵文字の跳ね）ではなくタイマーで回す＝画面を消して聞いている間も動く
+//   （音を出しているタブはブラウザがタイマーを間引かない。iPhone で Safari 自体が止まっている間は見張れない＝限界）。
+// しきい値：AGC の掛かったふつうの声は RMS 0.05〜0.25 程度。全振幅のノイズは約 0.58、矩形波は 1.0。
+//   RMS 0.5（約 -6dBFS）以上か、音割れ（|v|≥0.98）が 15% 以上のサンプルが、100ms ごとの見張りで 4 回分（約 0.4 秒）続いたら。
+const LOUD_RMS = 0.5, LOUD_CLIP = 0.15, LOUD_HITS = 4, LOUD_TICK_MS = 100
+const loudChain = a => {
+  if (a.limIn) return a.limIn
+  const ctx = ensureAudioCtx()
+  const comp = ctx.createDynamicsCompressor()
+  comp.threshold.value = -24; comp.knee.value = 6; comp.ratio.value = 20; comp.attack.value = 0.002; comp.release.value = 0.25
+  const g = ctx.createGain(); g.gain.value = 0.5   // さらに半分（約 -6dB）。リミッターの後ろで掛ける
+  comp.connect(g); g.connect(ensureMasterGain())
+  a.limIn = comp; a.limOut = g
+  return comp
+}
+let loudTimer = null
+const loudTick = () => {
+  if (!call.joinedId) return
+  analysers.forEach(({ analyser, data }, uid) => {
+    if (uid === 'self' || call.loud.has(uid)) return
+    if (uid !== 'tts' && !canHear(uid)) return   // 聞こえない相手（無視中・配信部屋の名簿外）は鳴っていないので見ない
+    analyser.getByteTimeDomainData(data)
+    let sum = 0, clip = 0
+    for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; if (data[i] <= 2 || data[i] >= 253) clip++ }
+    const hit = Math.sqrt(sum / data.length) >= LOUD_RMS || clip / data.length >= LOUD_CLIP
+    const n = Math.max(0, (call.loudHits.get(uid) || 0) + (hit ? 1 : -1))
+    call.loudHits.set(uid, n)
+    if (n >= LOUD_HITS) onLoudPeer(uid)
+  })
+}
+const onLoudPeer = uid => {
+  call.loud.set(uid, Date.now()); call.loudHits.delete(uid)
+  routePeer(uid)
+  const name = uid === 'tts' ? '読み上げ' : ((call.profiles.get(uid) || {}).name || 'ゲスト') + ' さん'
+  showPeerNotice('🔉 ' + name + 'の音がとても大きいので、自動で小さくしました。続くようなら、その人の ❤️ から「無視」もできます')
+  renderMembers()
+}
+const startLoudWatch = () => { if (!loudTimer) loudTimer = setInterval(loudTick, LOUD_TICK_MS) }
+const stopLoudWatch = () => { if (loudTimer) { clearInterval(loudTimer); loudTimer = null } }
+window.__potLoud = () => { try { return [...analysers].filter(([u]) => u !== 'self').map(([u, a]) => ({ id: u, loud: call.loud.has(u), via: a.via || '' })) } catch { return [] } }   // 診断・テスト用
 const applyVolume = () => {
   if (masterGain) masterGain.gain.value = masterVol
   if (bgm) bgm.gain.gain.value = bgmLevel()   // BGM も「アプリの音」の一部として一緒に上下する
@@ -5426,6 +5481,8 @@ const addAnalyser = (uid, stream) => {
     src.connect(analyser)
     analysers.set(uid, { analyser, data: new Uint8Array(analyser.fftSize), src })
     if (!vadRAF) vadRAF = requestAnimationFrame(vadTick)
+    if (uid !== 'self') startLoudWatch()
+    if (call.loud.has(uid)) routePeer(uid)   // 抑えた相手のストリームが取り直されたら、新しい音源もリミッターへ
   } catch {}
 }
 const removeAnalyser = uid => {
@@ -5447,6 +5504,7 @@ const stopOut = () => {
 }
 const stopVad = () => {
   if (vadRAF) { cancelAnimationFrame(vadRAF); vadRAF = null }
+  stopLoudWatch()
   analysers.forEach((_, uid) => removeAnalyser(uid))
   stopOut()   // ★ctx.close() より先（上のコメント）
   if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null }
@@ -7191,6 +7249,7 @@ const wireRoom = () => {
     call.nudges.delete(id); call.nudgeSeen.delete(id); call.byeSeen.delete(id); call.requests.delete(id)
     call.ignored.delete(id)   // peerId は使い捨て。入り直すと別人なので、無視も持ち越さない
     call.cardCache.delete(id); call.cardReqSeen.delete(id); call.cardVer.delete(id); call.cardAsk.delete(id); call.cardAskAt.delete(id)
+    call.loud.delete(id); call.loudHits.delete(id)
     if (call.cardViewing === id) { call.cardViewing = null; try { $('cardDlg').close() } catch {} }
     call.ttsSent.delete(id); call.ttsSentStream.delete(id); call.ttsResentAt.delete(id)   // 読み上げを配った記録（入り直せば別 ID＝改めて {ok} を待つ）
     if (id === call.ownerPeer && call.ttsAnn) { call.ttsAnn = null; call.ttsTrackIds.clear(); dropAudios('tts'); removeAnalyser('tts') }   // 配信者が抜けた＝仮想行も畳む
