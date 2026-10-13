@@ -20,11 +20,14 @@
 - **qrcode-generator** — MIT License — © Kazuhiko Arase
   https://github.com/kazuhikoarase/qrcode-generator
 
-以下は「ひとことの読み上げ」（配信部屋・配信者がオンにしたときだけ）で、jsDelivr／unpkg／Hugging Face から実行時に読み込むもの。
-本リポジトリはこれらを再配布していません。
+以下は「ひとことの読み上げ」（配信部屋・配信者がオンにしたときだけ）で読み込むもの。v0.16.14 から npm の配布物を**そのまま**
+`vendor/` に置いて配っています（再配布にあたります。ライセンス本文は [vendor/LICENSES.md](vendor/LICENSES.md)）。
 
-- **piper-plus**（`piper-plus`・`@piper-plus/g2p`）— MIT License — © ayutaz and contributors
+- **piper-plus**（`piper-plus`・`@piper-plus/g2p`）— MIT License — © 2022 Michael Hansen, © 2025 ayutaz
   https://github.com/ayutaz/piper-plus
+  - 同梱（wasm の中）：**Open JTalk**・**HTS Engine API**（BSD-3-Clause — © Nagoya Institute of Technology）・**MeCab**・
+    **NAIST Japanese Dictionary**（BSD-3-Clause — © Nara Institute of Science and Technology ほか）。表示は
+    [vendor/piper-plus-0.7.0/THIRD-PARTY-LICENSES.md](vendor/piper-plus-0.7.0/THIRD-PARTY-LICENSES.md)
 - **ONNX Runtime Web**（`onnxruntime-web`）— MIT License — © Microsoft Corporation
   https://github.com/microsoft/onnxruntime
 - 音声モデルは v0.14.52 から**リポジトリに同梱**（下の「同梱している素材」を参照）。実行時に Hugging Face へは行かない。

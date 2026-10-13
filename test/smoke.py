@@ -2358,6 +2358,7 @@ def T76(r, room):
 
     中身を 1 バイトでも変えたら落ちる（版を上げるときは vendor/README.md の手順で SHA256SUMS も揃える）。
     参加・QR・在室の公開（nostr-tools）まで通して、読み込んだスクリプトの出どころを見る。
+    ＋読み上げ（v0.16.14）：import map と CSP に jsDelivr／unpkg が残っていない（実エンジンは 100MB なので落とさず、宛先だけ見る）。
     """
     import hashlib
     here = os.path.dirname(os.path.abspath(__file__))
@@ -2376,11 +2377,14 @@ def T76(r, room):
     time.sleep(3)   # 在室の公開（nostr-tools の読み込み）を待つ
     urls = a.eval("JSON.stringify(performance.getEntriesByType('resource').map(e => e.name))")
     names = json.loads(urls)
-    esm = [u for u in names if 'esm.sh' in u]
+    esm = [u for u in names if 'esm.sh' in u or 'jsdelivr' in u or 'unpkg' in u]
     vend = sorted({u.split('/vendor/')[1] for u in names if '/vendor/' in u})
-    ok = bool(not bad and joined and qr and not esm and 'trystero-0.25.4.mjs' in vend and 'qrcode-generator-1.4.4.mjs' in vend)
-    r.check('T76', '同梱ライブラリ：SHA256SUMS と一致・esm.sh へ取りに行かない・vendor/ から読む', ok, 'pass',
-            '不一致=%s / 参加=%s / QR=%s / esm.sh=%s / vendor=%s' % (bad, bool(joined), bool(qr), esm[:3], vend))
+    cdn = a.eval("(() => { const t = document.querySelector('script[type=importmap]').textContent + document.querySelector('meta[http-equiv=Content-Security-Policy]').content;"
+                 " return /jsdelivr|unpkg|esm\\.sh/.test(t) })()")
+    tts = a.eval("Object.values(JSON.parse(document.querySelector('script[type=importmap]').textContent).imports).every(u => u.startsWith('./vendor/'))")
+    ok = bool(not bad and joined and qr and not esm and not cdn and tts and 'trystero-0.25.4.mjs' in vend and 'qrcode-generator-1.4.4.mjs' in vend)
+    r.check('T76', '同梱ライブラリ：SHA256SUMS と一致・外部 CDN へ取りに行かない・vendor/ から読む（読み上げの import map も）', ok, 'pass',
+            '不一致=%s / 参加=%s / QR=%s / CDN=%s / map・CSP に CDN=%s / 読み上げ→vendor=%s / vendor=%s' % (bad, bool(joined), bool(qr), esm[:3], cdn, tts, vend))
     click_leave(a)
 
 

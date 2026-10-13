@@ -289,3 +289,48 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
+
+---
+
+## 読み上げ（v0.16.14〜同梱）
+
+以下の 3 つは npm の配布物（tarball）から、使うファイルだけを**同じ並び・同じ中身のまま**置いたもの。配信者が読み上げをオンにしたときだけ読み込む。
+
+### piper-plus@0.7.0（`piper-plus-0.7.0/`）
+
+MIT License。本文は [piper-plus-0.7.0/LICENSE.md](piper-plus-0.7.0/LICENSE.md)（Copyright (c) 2022 Michael Hansen / Copyright (c) 2025 ayutaz）。
+`dist/rust-wasm/piper_plus_wasm_bg.wasm` は日本語の読み（Open JTalk・HTS Engine API・MeCab・NAIST Japanese Dictionary、いずれも BSD-3-Clause）を含む。
+それらの著作権表示とライセンス本文は配布物に付いている [piper-plus-0.7.0/THIRD-PARTY-LICENSES.md](piper-plus-0.7.0/THIRD-PARTY-LICENSES.md) をそのまま置いている。
+
+### @piper-plus/g2p@0.4.2（`piper-plus-g2p-0.4.2/`）
+
+MIT License。本文は [piper-plus-g2p-0.4.2/LICENSE.md](piper-plus-g2p-0.4.2/LICENSE.md)（piper-plus と同じ表示）。
+
+### onnxruntime-web@1.30.0（`onnxruntime-web-1.30.0/`）
+
+MIT License（npm の配布物にライセンスファイルが無いので、本文をここに載せる。各ファイルの先頭にも同じ表示がある）。
+wasm に含まれる第三者部品の表示は https://github.com/microsoft/onnxruntime/blob/main/ThirdPartyNotices.txt
+
+```
+MIT License
+
+Copyright (c) Microsoft Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

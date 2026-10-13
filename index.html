@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ぽっと通話〈実験版〉 v0.16.13
+  ぽっと通話〈実験版〉 v0.16.14
   同じ部屋名を開いた人どうしが、ブラウザだけで声でつながるミニ通話アプリ。
   サーバは持たない（相手発見＝公開Nostrリレー／音声＝WebRTC・Cloudflare TURN経由）。
   ビルドもパッケージも無く、この1ファイルで完結する。GitHub Pages で配信。
@@ -35,15 +35,15 @@
      ★v0.16.2 から Trystero・nostr-tools・QR は esm.sh ではなく**同じドメインの vendor/ から**読む（中身は esm.sh の
      配布物そのまま・vendor/README.md）。第三者 CDN が侵害されても知らないコードが動かないように（脅威モデル S1）。
      `crossorigin` は必須：実際の取得が CORS（匿名）なので、付けないと別の接続として扱われ再利用されない。 -->
-<!-- 読み上げ（piper-plus）の import map。bare specifier（'piper-plus'・'@piper-plus/g2p'・'onnxruntime-web'）を CDN に写像する。
+<!-- 読み上げ（piper-plus）の import map。bare specifier（'piper-plus'・'@piper-plus/g2p'・'onnxruntime-web'）を vendor/ に写像する。
      ★modulepreload より**前**に置くこと（後に置くと import map は無視される）。読み込み自体は設定をオンにしたときの
-     動的 import（Trystero と同じ段階読み込み）。wasm 本体（60MB）は jsDelivr の 50MB 上限に当たるので unpkg から（JS 側の定数） -->
+     動的 import（Trystero と同じ段階読み込み）。
+     ★v0.16.14 から jsDelivr／unpkg ではなく**同じドメインの vendor/ から**（npm の配布物そのまま・vendor/README.md・脅威モデル S1 の残り）。
+     相対 URL は文書の場所から解決される＝/pop_demo/ に置いても自分の vendor/ を指す -->
 <script type="importmap">{"imports":{
-  "piper-plus":       "https://cdn.jsdelivr.net/npm/piper-plus@0.7.0/src/index.js",
-  "piper-plus/":      "https://cdn.jsdelivr.net/npm/piper-plus@0.7.0/",
-  "@piper-plus/g2p":  "https://cdn.jsdelivr.net/npm/@piper-plus/g2p@0.4.2/src/index.js",
-  "@piper-plus/g2p/": "https://cdn.jsdelivr.net/npm/@piper-plus/g2p@0.4.2/",
-  "onnxruntime-web":  "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.wasm.min.mjs"
+  "piper-plus":       "./vendor/piper-plus-0.7.0/src/index.js",
+  "@piper-plus/g2p":  "./vendor/piper-plus-g2p-0.4.2/src/index.js",
+  "onnxruntime-web":  "./vendor/onnxruntime-web-1.30.0/dist/ort.wasm.min.mjs"
 }}</script>
 <link rel="preconnect" href="https://pot-turn.itsuma-kuramoto.workers.dev" crossorigin>
 <link rel="modulepreload" href="vendor/trystero-0.25.4.mjs">
@@ -60,15 +60,15 @@
      ★列挙した wss: は TRYSTERO_BASE.relayConfig.urls と**同じもの**。Trystero を上げたときに
      設定キー名が変わると黙って既定リレーへ落ちるが、それはここでブロックされて全滅する
      （静かな設定ドリフトが派手な失敗に変わる）。上げたら必ず2台で疎通確認すること。
-     ★読み上げ（v0.14.42）：script-src の cdn.jsdelivr.net／unpkg.com はライブラリと wasm、'wasm-unsafe-eval' は wasm の
-     コンパイルに要る。声のモデルは v0.14.52 から repo 同梱（models/）＝'self' で足りる（huggingface.co の許可は外した）。 -->
+     ★読み上げ（v0.14.42）：'wasm-unsafe-eval' は wasm のコンパイルに要る。声のモデルは v0.14.52 から repo 同梱（models/）、
+     エンジン（piper-plus・onnxruntime-web）は v0.16.14 から vendor/ に同梱＝'self' で足りる（jsDelivr／unpkg の許可は外した）。 -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'none';
-  script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://static.cloudflareinsights.com https://cdn.jsdelivr.net https://unpkg.com;
+  script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://static.cloudflareinsights.com;
   style-src 'self' 'unsafe-inline';
   img-src 'self' data: blob:;
   media-src 'self' blob:;
-  connect-src 'self' https://pot-turn.itsuma-kuramoto.workers.dev https://cloudflareinsights.com https://cdn.jsdelivr.net https://unpkg.com https://api.github.com https://publish.x.com https://publish.twitter.com wss://relay.primal.net wss://purplerelay.com wss://bucket.coracle.social wss://yabu.me/v2 wss://x.kojira.io wss://relay.notoshi.win wss://relay.ditto.pub;
+  connect-src 'self' https://pot-turn.itsuma-kuramoto.workers.dev https://cloudflareinsights.com https://api.github.com https://publish.x.com https://publish.twitter.com wss://relay.primal.net wss://purplerelay.com wss://bucket.coracle.social wss://yabu.me/v2 wss://x.kojira.io wss://relay.notoshi.win wss://relay.ditto.pub;
   manifest-src 'self';
   base-uri 'self';
   form-action 'none';
@@ -1718,7 +1718,7 @@ window.__potPending = () => { try { return pendingPeers().map(p => p.name || p.i
 // ───────────────────────────────────────────────────────────────────────────
 // 版。**ここが唯一の定義**（画面表示もここから入れる）。ファイル冒頭のコメントにも同じ番号が
 // 書いてあるので、上げるときは両方直すこと（食い違いは test/smoke.py の T15 が検出する）。
-const APP_VERSION = 'v0.16.13'
+const APP_VERSION = 'v0.16.14'
 
 const $ = id => document.getElementById(id)
 // localStorage は**必ずここを通す**。Safari のプライベートモードやストレージ拒否の環境では
@@ -5049,11 +5049,12 @@ addEventListener('focus', clearTabFresh)
 // なぜ OS の合成（Web Speech API）をやめたか：iOS はマイク使用中に OS の合成音声を鳴らすと、読んだ後に通話の出力が
 // 受話口側へ戻ったままになる（v0.14.37〜40 で復帰処理・マイク取り直しを試して全滅）。消音スイッチでも消える。AEC の参照に
 // 入らないのでスピーカーだと読み上げが相手へ素通しになる。PCM を自分の出口に流せばこの 3 つが同時に消える。
-// エンジンは段階読み込み（Trystero と同じ作法）：①piper-plus ②onnxruntime-web ③initialize（wasm 60MB＝gzip 19MB・ORT 約 10MB・
-// モデル 38MB は Hugging Face から取得し IndexedDB に残る）。**オンにしたときだけ**読み込む（メモリ約 200MB を他の人に負わせない）。
+// エンジンは段階読み込み（Trystero と同じ作法）：①piper-plus ②onnxruntime-web ③initialize（wasm 60MB＝gzip 19MB・ORT 約 14MB・
+// モデルは models/ の 26MB で IndexedDB に残る）。**オンにしたときだけ**読み込む（メモリ約 200MB を他の人に負わせない）。
 // 一度読み込んだら退出しても捨てない（再入室で 15 秒待たせない）。
-// ★wasm 本体は unpkg から：jsDelivr は 1 ファイル 50MB 上限で 60MB の wasm が 403 になる（2026-09-26 確認）。
-// ★モデルは sha で固定：エイリアス 'tsukuyomi' は HF の main を解決するので、差し替わると feed の形が変わり得る。
+// ★エンジンは vendor/ に同梱（v0.16.14・npm の配布物そのまま・SHA256SUMS）。それまでは jsDelivr、60MB の wasm だけ unpkg
+//   （jsDelivr は 1 ファイル 50MB 上限で 403）。中国語の辞書（piper-plus の assets/pinyin_*.json）は npm にも無く CDN でも 404 だった＝
+//   同梱しない（日本語には使わない。404 は piper-plus が握りつぶす）。
 // ★ORT の feed パッチ（patchOrt）：piper-plus 0.7.0 の JS はモデルの宣言（speaker_embedding float32[batch,256]・
 //   speaker_embedding_mask int64[batch,1]）と合わず rank エラーになる（graph.input を直接読んで確認・upstream 未修正）。
 // 読む文面・キュー・「人が話している間は待つ」は v0.14.33 の設計をそのまま：
@@ -5091,8 +5092,8 @@ const TTS_STRIP = /[\p{Extended_Pictographic}️‍]/gu   // 絵文字（結合�
 //   **差し替えるときは名前を変える（v2…）**：piper-plus は URL をキーに IndexedDB に残すので、同名で中身を変えると古いのが使われ続ける。
 //   相対パスは piper-plus が HF の repo 名と誤解するので絶対 URL にする
 const TTS_MODEL_URL = new URL('models/tsukuyomi-chan-6lang-int8-v1.onnx', location.href).href
-const TTS_WASM_URL = 'https://unpkg.com/piper-plus@0.7.0/dist/rust-wasm/piper_plus_wasm.js'
-const TTS_ORT_DIST = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/'   // wasm 専用バンドル（ort.wasm.min.mjs）と揃える。1.30 の素の wasm は int8 の Conv（ConvInteger u8×s8）を持つ（1.21〜1.23 は無い＝Safari で NOT_IMPLEMENTED・2026-09-27）
+const TTS_WASM_URL = new URL('vendor/piper-plus-0.7.0/dist/rust-wasm/piper_plus_wasm.js', location.href).href   // piper-plus が import(url) する＝絶対 URL
+const TTS_ORT_DIST = new URL('vendor/onnxruntime-web-1.30.0/dist/', location.href).href   // wasm 専用バンドル（ort.wasm.min.mjs）と揃える。1.30 の素の wasm は int8 の Conv（ConvInteger u8×s8）を持つ（1.21〜1.23 は無い＝Safari で NOT_IMPLEMENTED・2026-09-27）
 const TTS_LENGTH_SCALE = 1.4   // 実機で聞き取りやすかった速さ（1.0 は早口）
 const TTS_NOISE_SCALE = 0.667
 const ttsOk = typeof WebAssembly === 'object'
