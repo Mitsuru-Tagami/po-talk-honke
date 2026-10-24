@@ -1,7 +1,7 @@
 {
-  "name": "ぽっと通話",
-  "short_name": "ぽっと通話",
-  "description": "同じ部屋を開いた人どうし、声でつながります。",
+  "name": "ぽっと通話（PWAプッシュ実験版）",
+  "short_name": "ぽっと通話実験版",
+  "description": "非公式の実験フォーク（PWAプッシュ通知の実測用）。同じ部屋を開いた人どうし、声でつながります。",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

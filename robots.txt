@@ -3,4 +3,3 @@ Allow: /
 Disallow: /test/
 Disallow: /tools/
 Disallow: /worker/
-Sitemap: https://potalk.app/sitemap.xml
