@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>プッシュ購読テスト｜ぽっと通話（PWAプッシュ実験版）</title>
+<link rel="manifest" href="push-test.webmanifest">
+<link rel="apple-touch-icon" href="images/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="購読テスト">
 <style>
   body { font-family: sans-serif; margin: 1.5em; line-height: 1.7; background: #0d1526; color: #e8edf5; }
   button { font-size: 1em; padding: .6em 1.2em; margin: .3em .3em .3em 0; border-radius: .5em; border: 1px solid #5a6c8a; background: #1b2942; color: #e8edf5; }
@@ -16,7 +20,7 @@
 <h1>プッシュ購読テスト</h1>
 <p>これは <b>ぽっと通話（PWAプッシュ実験版）</b>の、通知の受け口を確かめるための実験ページです（非公式フォーク）。</p>
 <p class="note">
-  手順：iPhone では先にこのサイトをホーム画面に追加して、追加したアイコンから開いてください（iOS の Web Push はホーム追加した PWA が対象です）。<br>
+  手順：iPhone の Safari でこのページを開き、共有メニューから「ホーム画面に追加」してください。できたアイコン（購読テスト）から開き直すと、購読できるようになります（iOS の Web Push はホーム追加した PWA が対象です）。<br>
   「購読する」を押すと通知の許可を求められます。表示された購読 JSON は、<b>自分の送信役ユニットにだけ</b>渡してください（この JSON は、その端末へ通知を送るための鍵にあたります）。
 </p>
 <p id="status">状態を確認中…</p>
